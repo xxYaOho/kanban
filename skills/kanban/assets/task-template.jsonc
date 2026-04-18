@@ -1,0 +1,24 @@
+// 完整任务骨架模板(非 draft)。UUID 和时间由 new-task.ts 生成,这里只是结构参考。
+{
+  "<uuid>": {
+    "status": "planned",
+    "repo": "<repo>",
+    "description": "<一句话描述>",
+    "plan": "~/.kanban/wave/<repo>/<uuid>/plan.md",
+    "created": "<ISO8601>",
+    "updated": "<ISO8601>",
+    "worktree": {
+      "<worktree-name>": {
+        "role": "developer", // developer | reviewer | test
+        "action": "<这个 worktree 要做什么>",
+        "status": "idle", // idle | working | waiting_review | review_approved | review_rejected | done | blocked
+        "attempt": 0,
+        "report": null,
+        "review": null,
+        "test": null,
+        "error": null,
+        "blocked_on": null,
+      },
+    },
+  },
+}
