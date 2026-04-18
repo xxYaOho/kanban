@@ -10,11 +10,6 @@
  *   add-worktree:<name>:<json>    新增 worktree 条目(json 为对象 {role,action})
  *   del-worktree:<name>           删除 worktree 条目
  *
- * 示例:
- *   bun run update-task.ts 019d9b9f set:status=planned set:description="CLI v0.14"
- *   bun run update-task.ts 019d9b9f add-worktree:review:'{"role":"reviewer","action":"统一 review"}'
- *   bun run update-task.ts 019d9b9f del-worktree:obsolete
- *
  * stdout: JSON { ok, diff, newStatus }
  */
 import { existsSync, statSync } from "fs";
@@ -23,7 +18,7 @@ import { resolveUuid, type Kanban, type Task, type WorktreeRole } from "./kanban
 import { fromKanbanRel } from "./paths";
 
 // 允许的顶层路径
-const EDITABLE_TOP = new Set(["status", "description", "plan", "repo"]);
+const EDITABLE_TOP = new Set(["status", "description", "plan", "draft", "repo"]);
 // 允许的 worktree 子路径
 const EDITABLE_WORKTREE_FIELD = new Set(["role", "action"]);
 // Agent 领域:明确拒绝
@@ -59,24 +54,17 @@ function parseOps(argv: string[]): Op[] {
       const body = raw.slice("set:".length);
       const eqIdx = body.indexOf("=");
       if (eqIdx < 0) throw new Error(`op 语法错: ${raw}`);
-      ops.push({
-        kind: "set",
-        path: body.slice(0, eqIdx),
-        value: body.slice(eqIdx + 1),
-      });
+      ops.push({ kind: "set", path: body.slice(0, eqIdx), value: body.slice(eqIdx + 1) });
     } else if (raw.startsWith("add-worktree:")) {
       const body = raw.slice("add-worktree:".length);
       const colonIdx = body.indexOf(":");
       if (colonIdx < 0) throw new Error(`op 语法错: ${raw}`);
       const name = body.slice(0, colonIdx);
-      const json = body.slice(colonIdx + 1);
-      const obj = JSON.parse(json);
-      if (!obj || typeof obj !== "object" || !obj.role || typeof obj.action !== "string") {
+      const obj = JSON.parse(body.slice(colonIdx + 1));
+      if (!obj?.role || typeof obj.action !== "string") {
         throw new Error(`add-worktree 需要 {role, action}: ${raw}`);
       }
-      if (!VALID_ROLE.has(obj.role)) {
-        throw new Error(`非法 role: ${obj.role}`);
-      }
+      if (!VALID_ROLE.has(obj.role)) throw new Error(`非法 role: ${obj.role}`);
       ops.push({ kind: "add-worktree", name, value: obj });
     } else if (raw.startsWith("del-worktree:")) {
       const name = raw.slice("del-worktree:".length);
@@ -99,9 +87,7 @@ function validatePath(path: string): { top?: string; worktree?: { name: string; 
         `字段 \`worktree.${name}.${field}\` 属于 Agent 自主字段,/kanban --update 不允许修改。`,
       );
     }
-    if (!EDITABLE_WORKTREE_FIELD.has(field)) {
-      throw new Error(`未知字段: ${path}`);
-    }
+    if (!EDITABLE_WORKTREE_FIELD.has(field)) throw new Error(`未知字段: ${path}`);
     return { worktree: { name, field } };
   }
   throw new Error(`未知或禁止修改的字段: ${path}`);
@@ -116,23 +102,16 @@ function validatePromotable(task: Task): string[] {
     errs.push(`plan 文件为空: ${task.plan}`);
   }
   const names = Object.keys(task.worktree ?? {});
-  if (names.length === 0) {
-    errs.push("worktree 为空,需至少一个条目");
-  }
+  if (names.length === 0) errs.push("worktree 为空,需至少一个条目");
   for (const n of names) {
     const w = task.worktree[n] ?? {};
-    if (!w.role || !VALID_ROLE.has(w.role as WorktreeRole)) {
-      errs.push(`worktree.${n}.role 非法或缺失`);
-    }
-    if (!w.action || !String(w.action).trim()) {
-      errs.push(`worktree.${n}.action 未填写`);
-    }
+    if (!w.role || !VALID_ROLE.has(w.role as WorktreeRole)) errs.push(`worktree.${n}.role 非法或缺失`);
+    if (!w.action || !String(w.action).trim()) errs.push(`worktree.${n}.action 未填写`);
   }
   return errs;
 }
 
 function ensureWorktreeDefaults(w: any) {
-  // 填补 Agent 领域字段的初始值(仅当新建时)
   if (w.status === undefined) w.status = "idle";
   if (w.attempt === undefined) w.attempt = 0;
   if (w.report === undefined) w.report = null;
@@ -153,34 +132,28 @@ async function main() {
 
   await withKanbanLock(async (kanban: Kanban) => {
     // 解析 uuid
-    const uuid =
-      kanban[uuidPrefix] ? uuidPrefix : resolveUuid(kanban, uuidPrefix)[0];
     const matches = kanban[uuidPrefix] ? [uuidPrefix] : resolveUuid(kanban, uuidPrefix);
     if (matches.length === 0) throw new Error(`找不到任务: ${uuidPrefix}`);
     if (matches.length > 1) {
-      throw new Error(
-        `UUID 前缀 ${uuidPrefix} 多候选: ${matches.join(", ")}(请用更长前缀)`,
-      );
+      throw new Error(`UUID 前缀 ${uuidPrefix} 多候选: ${matches.join(", ")}`);
     }
-    const task = kanban[uuid!];
+    const uuid = matches[0];
+    const task = kanban[uuid];
     if (!task) throw new Error(`找不到任务: ${uuid}`);
 
-    // 快照原状态,用于生成 diff
     const before = JSON.parse(JSON.stringify(task)) as Task;
-
-    // 结构性改动的状态约束
     const structuralAllowed = task.status === "draft" || task.status === "planned";
 
-    // 应用 ops
     for (const op of ops) {
       if (op.kind === "set") {
         const pv = validatePath(op.path);
         if (pv.top) {
           if (pv.top === "status") {
-            if (!VALID_TASK_STATUS.has(op.value)) {
-              throw new Error(`非法 status: ${op.value}`);
-            }
+            if (!VALID_TASK_STATUS.has(op.value)) throw new Error(`非法 status: ${op.value}`);
             (task as any).status = op.value;
+          } else if (pv.top === "draft") {
+            // 空字符串 → null(清除)
+            (task as any).draft = op.value.trim() === "" ? null : op.value;
           } else {
             (task as any)[pv.top] = op.value;
           }
@@ -195,30 +168,22 @@ async function main() {
         }
       } else if (op.kind === "add-worktree") {
         if (!structuralAllowed) {
-          throw new Error(
-            `当前 status=${task.status},不允许新增 worktree。仅在 draft/planned 允许。`,
-          );
+          throw new Error(`当前 status=${task.status},不允许新增 worktree。仅在 draft/planned 允许。`);
         }
-        if (task.worktree[op.name]) {
-          throw new Error(`worktree.${op.name} 已存在`);
-        }
+        if (task.worktree[op.name]) throw new Error(`worktree.${op.name} 已存在`);
         const w: any = { ...op.value };
         ensureWorktreeDefaults(w);
         task.worktree[op.name] = w;
       } else if (op.kind === "del-worktree") {
         if (!structuralAllowed) {
-          throw new Error(
-            `当前 status=${task.status},不允许删除 worktree。`,
-          );
+          throw new Error(`当前 status=${task.status},不允许删除 worktree。`);
         }
-        if (!task.worktree[op.name]) {
-          throw new Error(`worktree.${op.name} 不存在`);
-        }
+        if (!task.worktree[op.name]) throw new Error(`worktree.${op.name} 不存在`);
         delete task.worktree[op.name];
       }
     }
 
-    // 若 status 提升到 planned,触发校验
+    // status → planned 校验
     if (before.status !== task.status && task.status === "planned") {
       const errs = validatePromotable(task);
       if (errs.length > 0) {
@@ -228,36 +193,23 @@ async function main() {
       }
     }
 
-    // 生成 diff 文本
-    if (before.status !== task.status) {
-      diff.push(`status: ${before.status} → ${task.status}`);
-      newStatus = task.status;
-    }
-    if (before.description !== task.description) {
-      diff.push(`description: "${before.description}" → "${task.description}"`);
-    }
-    if (before.plan !== task.plan) {
-      diff.push(`plan: ${before.plan} → ${task.plan}`);
-    }
-    if (before.repo !== task.repo) {
-      diff.push(`repo: ${before.repo} → ${task.repo}`);
-    }
+    // 生成 diff
+    if (before.status !== task.status) { diff.push(`status: ${before.status} → ${task.status}`); newStatus = task.status; }
+    if (before.description !== task.description) diff.push(`description: "${before.description}" → "${task.description}"`);
+    if (before.plan !== task.plan) diff.push(`plan: ${before.plan} → ${task.plan}`);
+    if ((before.draft ?? null) !== (task.draft ?? null)) diff.push(`draft: ${before.draft ?? "null"} → ${task.draft ?? "null"}`);
+    if (before.repo !== task.repo) diff.push(`repo: ${before.repo} → ${task.repo}`);
+
     const bNames = new Set(Object.keys(before.worktree ?? {}));
     const aNames = new Set(Object.keys(task.worktree ?? {}));
     for (const n of aNames) {
       if (!bNames.has(n)) {
-        diff.push(
-          `+ worktree.${n} = ${JSON.stringify({
-            role: task.worktree[n].role,
-            action: task.worktree[n].action,
-          })}`,
-        );
+        diff.push(`+ worktree.${n} = ${JSON.stringify({ role: task.worktree[n].role, action: task.worktree[n].action })}`);
       } else {
         const bw = before.worktree[n]!;
         const aw = task.worktree[n];
         if (bw.role !== aw.role) diff.push(`worktree.${n}.role: ${bw.role} → ${aw.role}`);
-        if (bw.action !== aw.action)
-          diff.push(`worktree.${n}.action: "${bw.action}" → "${aw.action}"`);
+        if (bw.action !== aw.action) diff.push(`worktree.${n}.action: "${bw.action}" → "${aw.action}"`);
       }
     }
     for (const n of bNames) {
@@ -265,17 +217,7 @@ async function main() {
     }
   });
 
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        diff,
-        newStatus,
-      },
-      null,
-      2,
-    ),
-  );
+  console.log(JSON.stringify({ ok: true, diff, newStatus }, null, 2));
 }
 
 main().catch((err) => {

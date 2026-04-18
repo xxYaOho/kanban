@@ -4,6 +4,7 @@
     "status": "planned",
     "repo": "<repo>",
     "description": "<一句话描述>",
+    "draft": null, // 可选:原始需求草稿路径(不一定存在),用于追溯最初意图
     "plan": "~/.kanban/wave/<repo>/<uuid>/plan.md",
     "created": "<ISO8601>",
     "updated": "<ISO8601>",

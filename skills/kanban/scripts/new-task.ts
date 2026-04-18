@@ -3,69 +3,49 @@
  * /kanban --new 实现
  *
  * 参数:
- *   --mode <extract|fromFile|draft>
+ *   --mode <extract|fromFile|blank>
  *   --repo <repo>
  *   --description <desc>
- *   --plan-file <path>          (fromFile 模式必填;extract/draft 模式可选)
- *   --plan-content-file <path>  (extract 模式:Agent 整理好的 plan 写到临时文件,脚本读取)
- *   --worktrees-json <json>     可选,整体 worktree 字典的 JSON
- *   --draft                     (与 fromFile 同用 → 文件导入 + 草案)
+ *   --plan-content-file <path>   extract 模式:Agent 整理好的 plan 写到临时文件
+ *   --plan-file <path>           fromFile 模式:原始文件路径(脚本负责拷贝)
+ *   --draft-ref <path>           可选:原始需求草稿路径(记录用,不拷贝)
+ *   --worktrees-json <json>      可选:worktree 字典 JSON
  *
- * stdout:JSON { uuid, short, dir, planTarget, status }
+ * stdout: JSON { uuid, short, dir, planTarget, status }
  */
-import { mkdir, writeFile, copyFile, readFile, stat } from "fs/promises";
+import { mkdir, writeFile, copyFile, stat } from "fs/promises";
 import { existsSync } from "fs";
 import { randomUUID } from "crypto";
-import { resolve, dirname } from "path";
+import { resolve } from "path";
 import { withKanbanLock } from "./kanban-lock";
 import { waveDir, toKanbanRel } from "./paths";
 import type { Task, Worktree, WorktreeRole, WorktreeStatus } from "./kanban-io";
 
-type Mode = "extract" | "fromFile" | "draft";
+type Mode = "extract" | "fromFile" | "blank";
 
 interface Args {
   mode: Mode;
   repo: string;
   description: string;
-  planFile?: string;
   planContentFile?: string;
+  planFile?: string;
+  draftRef?: string;
   worktreesJson?: string;
-  draft: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Partial<Args> & { draft: boolean } = { draft: false };
+  const a: Partial<Args> = {};
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = argv[i + 1];
     switch (k) {
-      case "--mode":
-        a.mode = v as Mode;
-        i++;
-        break;
-      case "--repo":
-        a.repo = v;
-        i++;
-        break;
-      case "--description":
-        a.description = v;
-        i++;
-        break;
-      case "--plan-file":
-        a.planFile = v;
-        i++;
-        break;
-      case "--plan-content-file":
-        a.planContentFile = v;
-        i++;
-        break;
-      case "--worktrees-json":
-        a.worktreesJson = v;
-        i++;
-        break;
-      case "--draft":
-        a.draft = true;
-        break;
+      case "--mode": a.mode = v as Mode; i++; break;
+      case "--repo": a.repo = v; i++; break;
+      case "--description": a.description = v; i++; break;
+      case "--plan-content-file": a.planContentFile = v; i++; break;
+      case "--plan-file": a.planFile = v; i++; break;
+      case "--draft-ref": a.draftRef = v; i++; break;
+      case "--worktrees-json": a.worktreesJson = v; i++; break;
     }
   }
   if (!a.mode || !a.repo || !a.description) {
@@ -102,16 +82,13 @@ function normalizeWorktrees(
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  // 1. 生成 UUID(Bun 支持 crypto.randomUUID;若有 uuidv7 库可替换)
   const uuid = randomUUID().toLowerCase();
   const short = uuid.slice(0, 8);
-
-  // 2. 建工作目录
   const dir = waveDir(args.repo, uuid);
   await mkdir(dir, { recursive: true });
   const planTarget = resolve(dir, "plan.md");
 
-  // 3. 写 plan.md(按模式)
+  // 写 plan.md
   if (args.mode === "fromFile") {
     if (!args.planFile) throw new Error("fromFile 模式必须传 --plan-file");
     const src = resolve(args.planFile);
@@ -119,22 +96,19 @@ async function main() {
     await copyFile(src, planTarget);
   } else if (args.mode === "extract") {
     if (!args.planContentFile) throw new Error("extract 模式必须传 --plan-content-file");
+    const { readFile } = await import("fs/promises");
     const content = await readFile(resolve(args.planContentFile), "utf-8");
     await writeFile(planTarget, content, "utf-8");
   } else {
-    // draft 模式:占位
-    await writeFile(
-      planTarget,
-      `# ${args.description}\n\n(草案,待完善)\n`,
-      "utf-8",
-    );
+    // blank
+    await writeFile(planTarget, `# ${args.description}\n\n(待完善)\n`, "utf-8");
   }
 
-  // 4. 决定 status
-  const isDraft = args.draft || args.mode === "draft";
-  const status = isDraft ? "draft" : "planned";
+  // 决定 status
+  const isBlank = args.mode === "blank";
+  const status = isBlank ? "draft" : "planned";
 
-  // 5. 解析 worktrees
+  // 解析 worktrees
   let worktrees: Record<string, Partial<Worktree>> = {};
   if (args.worktreesJson) {
     try {
@@ -144,27 +118,25 @@ async function main() {
     }
   }
 
-  // 6. planned 的基本校验(如果不是 draft)
+  // planned 校验
   if (status === "planned") {
     const planStat = await stat(planTarget);
-    if (planStat.size === 0) {
-      throw new Error("planned 状态要求 plan.md 非空");
-    }
+    if (planStat.size === 0) throw new Error("planned 状态要求 plan.md 非空");
     if (Object.keys(worktrees).length === 0) {
       throw new Error(
-        "planned 状态要求 worktree 至少一个条目(传 --worktrees-json)。" +
-          "若暂时没想好 worktree 划分,改走 --draft",
+        "planned 状态要求 worktree 至少一个条目。若暂时没想好,改走 blank 模式",
       );
     }
   }
 
-  // 7. 原子写入
+  // 原子写入
   await withKanbanLock(async (kanban) => {
     if (kanban[uuid]) throw new Error(`UUID 冲突: ${uuid}`);
     const task: Task = {
       status,
       repo: args.repo,
       description: args.description,
+      draft: args.draftRef ?? null,
       plan: toKanbanRel(planTarget),
       created: new Date().toISOString(),
       worktree: worktrees,

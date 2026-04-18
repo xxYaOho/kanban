@@ -2,14 +2,7 @@
 /**
  * /kanban --uuid <uuid>
  *
- * 站在当前 cwd(若在某 worktree)的视角,展示任务全貌与下一步建议。
- * 纯读,不加锁。
- *
- * stdout: 人类可读 plain text(已渲染),方便 Agent 直接输出。
- * 退出码:
- *   0 — 正常
- *   2 — 多候选(stdout 列出候选,Agent 层去问用户)
- *   3 — 找不到
+ * 站在当前 worktree(若在)的视角,展示任务全貌与下一步建议。纯读,不加锁。
  */
 import { basename } from "path";
 import { readdirSync, statSync, existsSync } from "fs";
@@ -27,8 +20,7 @@ const BANNER_ICON: Record<string, string> = {
 
 function fmtTime(iso?: string): string {
   if (!iso) return "-";
-  const d = new Date(iso);
-  return d.toISOString().replace("T", " ").slice(0, 16) + " UTC";
+  return new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 }
 
 function humanAgo(iso: string): string {
@@ -42,8 +34,7 @@ function humanAgo(iso: string): string {
 }
 
 function padRight(s: string, w: number): string {
-  if (s.length >= w) return s;
-  return s + " ".repeat(w - s.length);
+  return s.length >= w ? s : s + " ".repeat(w - s.length);
 }
 
 function renderWorktreeTable(task: Task, hlName?: string): string {
@@ -58,23 +49,21 @@ function renderWorktreeTable(task: Task, hlName?: string): string {
       wt.report ?? "-",
     ]);
   }
-  // 计算列宽
   const widths = rows[0].map((_, col) =>
     rows.reduce((m, r) => Math.max(m, r[col].length), 0),
   );
-  const lines = rows.map((r, idx) => {
-    const line = r.map((c, i) => padRight(c, widths[i])).join("  ");
-    if (idx === 0) return line + "\n" + widths.map((w) => "-".repeat(w)).join("  ");
-    return line;
-  });
-  return lines.join("\n");
+  return rows
+    .map((r, idx) => {
+      const line = r.map((c, i) => padRight(c, widths[i])).join("  ");
+      if (idx === 0) return line + "\n" + widths.map((w) => "-".repeat(w)).join("  ");
+      return line;
+    })
+    .join("\n");
 }
 
 function nextHint(task: Task, hlName?: string): string {
   if (!hlName || !task.worktree[hlName]) return "";
   const w = task.worktree[hlName] as Partial<Worktree>;
-  const role = w.role;
-  const s = w.status;
   const map: Record<string, Record<string, string>> = {
     developer: {
       idle: "读 plan,依 action 开工,完成后写 report 并转 waiting_review",
@@ -96,8 +85,8 @@ function nextHint(task: Task, hlName?: string): string {
       done: "测试通过,任务收尾",
     },
   };
-  const tip = (role && s && map[role]?.[s]) ?? "(无默认建议,人工决定)";
-  return `📍 当前身份: ${hlName} (${role})\n   当前 status: ${s}\n   建议:${tip}`;
+  const tip = (w.role && w.status && map[w.role]?.[w.status]) ?? "(无默认建议,人工决定)";
+  return `📍 当前身份: ${hlName} (${w.role})\n   当前 status: ${w.status}\n   建议:${tip}`;
 }
 
 function listReports(repo: string, uuid: string): string[] {
@@ -105,50 +94,36 @@ function listReports(repo: string, uuid: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => /^(report|review|test)-.*\.md$/.test(f))
-    .map((f) => {
-      const st = statSync(`${dir}/${f}`);
-      return { name: f, mtime: st.mtimeMs };
-    })
+    .map((f) => ({ name: f, mtime: statSync(`${dir}/${f}`).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime)
     .map((x) => `  ${humanAgo(new Date(x.mtime).toISOString()).padEnd(8)}  ${x.name}`);
 }
 
 async function main() {
   const [uuidPrefix] = process.argv.slice(2);
-  if (!uuidPrefix) {
-    console.error("用法:query.ts <uuid>");
-    process.exit(1);
-  }
+  if (!uuidPrefix) { console.error("用法:query.ts <uuid>"); process.exit(1); }
 
   const kanban = await readKanban();
   let uuid: string | undefined;
+
   if (kanban[uuidPrefix]) {
     uuid = uuidPrefix;
   } else {
     const matches = resolveUuid(kanban, uuidPrefix);
     if (matches.length === 0) {
-      // 找不到:列最近 5 个
       const recent = Object.entries(kanban)
-        .sort(
-          (a, b) =>
-            new Date(b[1].updated ?? b[1].created).getTime() -
-            new Date(a[1].updated ?? a[1].created).getTime(),
-        )
+        .sort((a, b) => new Date(b[1].updated ?? b[1].created).getTime() - new Date(a[1].updated ?? a[1].created).getTime())
         .slice(0, 5);
       console.error(`❌ 找不到任务: ${uuidPrefix}`);
       if (recent.length > 0) {
         console.error("最近任务:");
-        for (const [u, t] of recent) {
-          console.error(`  ${u.slice(0, 8)}  [${t.status}]  ${t.description}`);
-        }
+        for (const [u, t] of recent) console.error(`  ${u.slice(0, 8)}  [${t.status}]  ${t.description}`);
       }
       process.exit(3);
     }
     if (matches.length > 1) {
       console.error(`⚠️  UUID 前缀 ${uuidPrefix} 多候选:`);
-      for (const u of matches) {
-        console.error(`  ${u.slice(0, 8)}  [${kanban[u].status}]  ${kanban[u].description}`);
-      }
+      for (const u of matches) console.error(`  ${u.slice(0, 8)}  [${kanban[u].status}]  ${kanban[u].description}`);
       process.exit(2);
     }
     uuid = matches[0];
@@ -159,41 +134,41 @@ async function main() {
   const cwd = basename(process.cwd());
   const hlName = task.worktree[cwd] ? cwd : undefined;
 
-  // 顶部横幅
   const icon = BANNER_ICON[task.status] ?? "📋";
   const tag = task.status === "draft" ? "DRAFT" : task.status;
-  let out = "";
-  out += `${icon} Task ${short}  [${tag}]  (${task.description})\n`;
+  let out = `${icon} Task ${short}  [${tag}]  (${task.description})\n`;
+
   if (task.status === "draft") {
     out += `⚠️  此任务仍在草案阶段,worktree 可能未分配。\n`;
     out += `    完善后运行:/kanban --update ${short} status=planned\n`;
   }
+
   out += "\n";
   out += `Repo:    ${task.repo}\n`;
   out += `Plan:    ${task.plan}\n`;
+
+  // draft 字段:低调展示,仅在非 null 时出现
+  if (task.draft) {
+    const draftExists = existsSync(fromKanbanRel(task.draft));
+    out += `Draft:   ${task.draft}${draftExists ? "" : "  (文件不存在,仅作记录)"}\n`;
+  }
+
   out += `Created: ${fmtTime(task.created)}\n`;
   out += `Updated: ${fmtTime(task.updated)}\n`;
 
-  // worktree 矩阵
   out += "\nWorktrees:\n";
   out += renderWorktreeTable(task, hlName) + "\n";
 
-  // 身份视角
   const hint = nextHint(task, hlName);
   if (hint) out += "\n" + hint + "\n";
 
-  // 最近报告
   const reports = listReports(task.repo, uuid!);
   if (reports.length > 0) {
     out += "\n最近报告:\n" + reports.slice(0, 10).join("\n") + "\n";
   }
 
-  // 目录一致性告警
   if (!existsSync(waveDir(task.repo, uuid!))) {
-    out +=
-      "\n⚠️  警告:任务目录不存在(" +
-      waveDir(task.repo, uuid!) +
-      "),kanban.jsonc 与文件系统不一致\n";
+    out += `\n⚠️  警告:任务目录不存在(${waveDir(task.repo, uuid!)}),kanban.jsonc 与文件系统不一致\n`;
   }
 
   console.log(out);

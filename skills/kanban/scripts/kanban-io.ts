@@ -1,8 +1,5 @@
 /**
  * kanban.jsonc I/O:读、解析、格式化。不负责加锁。
- *
- * 用 jsonc-parser 以宽容模式解析,允许行注释/尾逗号。
- * 写回用 JSON.stringify(obj, null, 2) — 注释不保留(本文件主要由脚本维护)。
  */
 import { readFile, writeFile } from "fs/promises";
 import { existsSync } from "fs";
@@ -45,6 +42,13 @@ export interface Task {
   status: TaskStatus;
   repo: string;
   description: string;
+  /**
+   * 可选。原始需求草稿文件路径。
+   * - 与 status=draft 是两个独立概念
+   * - 文件不一定存在于磁盘(仅作追溯记录)
+   * - 用于 plan 偏离时找回最初意图,或最终验收时对照原始需求
+   */
+  draft?: string | null;
   plan: string;
   created: string;
   updated?: string;
@@ -86,8 +90,7 @@ export async function writeKanban(data: Kanban): Promise<void> {
 
 export function resolveUuid(kanban: Kanban, prefix: string): string[] {
   if (prefix.length < 6) return [];
-  const candidates = Object.keys(kanban).filter((uuid) =>
+  return Object.keys(kanban).filter((uuid) =>
     uuid.startsWith(prefix.toLowerCase()),
   );
-  return candidates;
 }
