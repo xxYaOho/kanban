@@ -11,7 +11,7 @@
 import { $ } from "bun";
 import { existsSync } from "fs";
 import { mkdir, writeFile, rm } from "fs/promises";
-import { KANBAN_ROOT, KANBAN_FILE, LOCKS_DIR, WAVE_ROOT, ARCHIVE_ROOT } from "./paths";
+import { KANBAN_ROOT, KANBAN_FILE, LOCKS_DIR, ARCHIVE_ROOT } from "./paths";
 import { join, basename } from "path";
 
 const PKG = {
@@ -31,7 +31,7 @@ Kanban 多 Agent 协作的数据层。由 \`kanban\` skill 维护。
 ## 结构
 - \`kanban.jsonc\` — 状态总表(所有任务 + worktree 字段)
 - \`.locks/\` — ⚠️ 建议性文件锁,**不要手动修改或删除**,否则会破坏并发安全
-- \`wave/<repo>/<uuid>/\` — 每个任务的工作目录(plan/报告/review/test)
+- \`wave/<repo>/<uuid>/\` — 每个任务的工作目录(plan/报告/review/test),按需创建
 - \`archive/YYYY-MM/\` — 归档的完成任务
 - \`package.json\` / \`bun.lockb\` / \`node_modules/\` — 脚本运行时依赖
 
@@ -51,40 +51,31 @@ function parseArgs(argv: string[]) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  // Bun 已在运行 = Bun 已安装,本步由 Agent 层负责 `which bun` 前置检查
-  // (脚本内部无需再查一遍)
-
   if (existsSync(KANBAN_ROOT)) {
     if (args.skip) {
       console.log(`⚠️  ${KANBAN_ROOT} 已存在,跳过`);
       process.exit(0);
     }
     if (args.reset) {
-      // 备份
       const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const backupName = `kanban-backup-${ts}.tar.gz`;
       const backupPath = join(KANBAN_ROOT, "..", backupName);
       const parentDir = join(KANBAN_ROOT, "..");
-      if (existsSync(join(parentDir, basename(KANBAN_ROOT)))) {
-        const backupResult = await $`tar -czf ${backupPath} -C ${parentDir} ${basename(KANBAN_ROOT)}`.quiet().nothrow();
-        if (backupResult.exitCode === 0) {
-          console.log(`📦 备份已创建: ${backupPath}`);
-        } else {
-          console.error(`⚠️  备份失败,继续重置: ${backupResult.stderr.toString()}`);
-        }
+      const backupResult = await $`tar -czf ${backupPath} -C ${parentDir} ${basename(KANBAN_ROOT)}`.quiet().nothrow();
+      if (backupResult.exitCode === 0) {
+        console.log(`📦 备份已创建: ${backupPath}`);
+      } else {
+        console.error(`⚠️  备份失败,继续重置: ${backupResult.stderr.toString()}`);
       }
       await rm(KANBAN_ROOT, { recursive: true, force: true });
     } else {
-      console.error(
-        `⚠️  ${KANBAN_ROOT} 已存在。请传 --reset(重建)或 --skip(跳过)。`,
-      );
+      console.error(`⚠️  ${KANBAN_ROOT} 已存在。请传 --reset(重建)或 --skip(跳过)。`);
       process.exit(2);
     }
   }
 
-  // 建目录
+  // 建目录(.locks 和 archive;wave/ 按需由 new-task.ts 创建)
   await mkdir(LOCKS_DIR, { recursive: true });
-  await mkdir(WAVE_ROOT, { recursive: true });
   await mkdir(ARCHIVE_ROOT, { recursive: true });
 
   // 写模板文件
