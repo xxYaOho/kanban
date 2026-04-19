@@ -12,7 +12,7 @@ import { $ } from "bun";
 import { existsSync } from "fs";
 import { mkdir, writeFile, rm } from "fs/promises";
 import { KANBAN_ROOT, KANBAN_FILE, LOCKS_DIR, WAVE_ROOT, ARCHIVE_ROOT } from "./paths";
-import { join } from "path";
+import { join, basename } from "path";
 
 const PKG = {
   name: "kanban-data",
@@ -60,6 +60,19 @@ async function main() {
       process.exit(0);
     }
     if (args.reset) {
+      // 备份
+      const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const backupName = `kanban-backup-${ts}.tar.gz`;
+      const backupPath = join(KANBAN_ROOT, "..", backupName);
+      const parentDir = join(KANBAN_ROOT, "..");
+      if (existsSync(join(parentDir, basename(KANBAN_ROOT)))) {
+        const backupResult = await $`tar -czf ${backupPath} -C ${parentDir} ${basename(KANBAN_ROOT)}`.quiet().nothrow();
+        if (backupResult.exitCode === 0) {
+          console.log(`📦 备份已创建: ${backupPath}`);
+        } else {
+          console.error(`⚠️  备份失败,继续重置: ${backupResult.stderr.toString()}`);
+        }
+      }
       await rm(KANBAN_ROOT, { recursive: true, force: true });
     } else {
       console.error(

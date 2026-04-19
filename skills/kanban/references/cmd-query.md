@@ -69,7 +69,7 @@ test          test       idle           -        -
 
 ### Plan 正文预览
 
-默认**折叠**,只列 outline(plan.md 里的二级标题)。用户可二次请求 `/kanban --uuid <uuid> --full-plan` 展开全文。
+默认**折叠**,只列 outline(plan.md 里的二级标题)。用户需要查看全文时,Agent 直接用 Read 工具读取 plan 文件路径。
 
 ### 最近报告列表
 

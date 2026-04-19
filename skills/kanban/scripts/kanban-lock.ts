@@ -13,7 +13,7 @@ import lockfile from "proper-lockfile";
 import { mkdirSync, existsSync } from "fs";
 import { writeFileSync } from "fs";
 import { KANBAN_FILE, LOCKS_DIR, LOCK_FILE } from "./paths";
-import { readKanban, writeKanban, Kanban } from "./kanban-io";
+import { readKanban, writeKanban, Kanban, Task } from "./kanban-io";
 
 export interface LockOpts {
   retries?: number;
@@ -26,6 +26,15 @@ const DEFAULT_OPTS: Required<LockOpts> = {
   retryMinMs: 80,
   retryMaxMs: 400,
 };
+
+function taskChanged(before: Task, after: Task): boolean {
+  return before.status !== after.status
+    || before.description !== after.description
+    || before.plan !== after.plan
+    || before.draft !== after.draft
+    || before.repo !== after.repo
+    || JSON.stringify(before.worktree) !== JSON.stringify(after.worktree);
+}
 
 /**
  * 在文件锁内执行 mutator。mutator 可直接修改传入的 kanban 对象,
@@ -57,21 +66,20 @@ export async function withKanbanLock<T>(
       randomize: true,
     },
     realpath: false,
-    stale: 15_000,
+    stale: 60_000,
   });
 
   try {
     const kanban = await readKanban();
-    const beforeSnapshot = JSON.stringify(kanban);
+    const beforeSnapshot = structuredClone(kanban);
     const result = await mutator(kanban);
 
-    // 刷新 updated:对比前后哪些顶层任务的字符串表示变了
-    const before = JSON.parse(beforeSnapshot) as Kanban;
+    // 刷新 updated:显式比较每个顶层任务的关键字段
     const now = new Date().toISOString();
     for (const uuid of Object.keys(kanban)) {
-      const b = before[uuid];
+      const b = beforeSnapshot[uuid];
       const a = kanban[uuid];
-      if (!b || JSON.stringify(b) !== JSON.stringify(a)) {
+      if (!b || taskChanged(b, a)) {
         a.updated = now;
       }
     }

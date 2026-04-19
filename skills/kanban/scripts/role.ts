@@ -7,7 +7,6 @@
  *   --role <role>       developer | reviewer | test
  *   --action <action>   worktree 职责描述(非空)
  *   --uuid <uuid>       目标任务 UUID(完整或短前缀,Agent 层已解析)
- *   --refresh           若已存在同角色条目,仅刷新 action(幂等模式)
  *
  * stdout: JSON { ok, worktree, role, action, taskUuid, taskShort }
  * 冲突/错误: exit 1 + stderr
@@ -22,11 +21,10 @@ interface Args {
   role: WorktreeRole;
   action: string;
   uuid: string;
-  refresh: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Partial<Args> & { refresh: boolean } = { refresh: false };
+  const a: Partial<Args> = {};
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = argv[i + 1];
@@ -35,7 +33,6 @@ function parseArgs(argv: string[]): Args {
       case "--role": a.role = v as WorktreeRole; i++; break;
       case "--action": a.action = v; i++; break;
       case "--uuid": a.uuid = v; i++; break;
-      case "--refresh": a.refresh = true; break;
     }
   }
   if (!a.worktree) throw new Error("缺参: --worktree");
@@ -67,6 +64,11 @@ async function main() {
 
     const task = kanban[uuid];
     if (!task) throw new Error(`找不到任务: ${uuid}`);
+
+    const TERMINAL = new Set(["done", "archived", "aborted"]);
+    if (TERMINAL.has(task.status)) {
+      throw new Error(`任务 ${uuid.slice(0, 8)} 已处于终态 [${task.status}],无法注册 worktree`);
+    }
 
     const existing = task.worktree[args.worktree];
 

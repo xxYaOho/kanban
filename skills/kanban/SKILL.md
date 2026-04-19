@@ -130,6 +130,8 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 - 锁文件:`~/.kanban/.locks/kanban.jsonc.lock`
 - 锁内:读 → mutate → 写回 → 刷新 `updated`
 - 竞争时最多重试 10 次,退避 ~100ms,全部失败抛错
+- 锁过期(stale)阈值 60 秒;写入采用 tmp + rename 原子操作
+- `kanban.jsonc` 中的注释在首次脚本写入后会被清除(脚本产出纯 JSON)
 
 读操作不加锁。
 

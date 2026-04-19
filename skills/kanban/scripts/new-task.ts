@@ -13,7 +13,7 @@
  *
  * stdout: JSON { uuid, short, dir, planTarget, status }
  */
-import { mkdir, writeFile, copyFile, stat } from "fs/promises";
+import { mkdir, writeFile, copyFile, stat, readFile } from "fs/promises";
 import { existsSync } from "fs";
 import { randomUUID } from "crypto";
 import { resolve } from "path";
@@ -96,7 +96,6 @@ async function main() {
     await copyFile(src, planTarget);
   } else if (args.mode === "extract") {
     if (!args.planContentFile) throw new Error("extract 模式必须传 --plan-content-file");
-    const { readFile } = await import("fs/promises");
     const content = await readFile(resolve(args.planContentFile), "utf-8");
     await writeFile(planTarget, content, "utf-8");
   } else {
@@ -122,6 +121,8 @@ async function main() {
   if (status === "planned") {
     const planStat = await stat(planTarget);
     if (planStat.size === 0) throw new Error("planned 状态要求 plan.md 非空");
+    const planContent = await readFile(planTarget, "utf-8");
+    if (planContent.trim().length === 0) throw new Error("planned 状态要求 plan.md 内容非空白");
     if (Object.keys(worktrees).length === 0) {
       throw new Error(
         "planned 状态要求 worktree 至少一个条目。若暂时没想好,改走 blank 模式",

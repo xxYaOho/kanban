@@ -1,7 +1,7 @@
 /**
  * kanban.jsonc I/O:读、解析、格式化。不负责加锁。
  */
-import { readFile, writeFile } from "fs/promises";
+import { readFile, writeFile, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { parse as parseJsonc, ParseError } from "jsonc-parser";
 import { KANBAN_FILE } from "./paths";
@@ -57,6 +57,44 @@ export interface Task {
 
 export type Kanban = Record<string, Task>;
 
+const VALID_TASK_STATUSES = new Set<string>([
+  "draft", "planned", "in_progress", "done", "archived", "aborted",
+]);
+
+// ---- 校验 ----
+
+export function validateKanban(data: unknown): Kanban {
+  if (data == null || typeof data !== "object") {
+    throw new Error("kanban.jsonc 根结构必须是对象");
+  }
+  const kanban = data as Record<string, unknown>;
+  for (const [uuid, val] of Object.entries(kanban)) {
+    if (val == null || typeof val !== "object") {
+      throw new Error(`任务 ${uuid.slice(0, 8)} 的值必须是对象`);
+    }
+    const task = val as Record<string, unknown>;
+    if (typeof task.status !== "string" || !VALID_TASK_STATUSES.has(task.status)) {
+      throw new Error(`任务 ${uuid.slice(0, 8)} 缺少合法 status 字段`);
+    }
+    if (typeof task.repo !== "string") {
+      throw new Error(`任务 ${uuid.slice(0, 8)} 缺少 repo 字段(字符串)`);
+    }
+    if (typeof task.description !== "string") {
+      throw new Error(`任务 ${uuid.slice(0, 8)} 缺少 description 字段(字符串)`);
+    }
+    if (typeof task.plan !== "string") {
+      throw new Error(`任务 ${uuid.slice(0, 8)} 缺少 plan 字段(字符串)`);
+    }
+    if (typeof task.created !== "string") {
+      throw new Error(`任务 ${uuid.slice(0, 8)} 缺少 created 字段(ISO 时间戳)`);
+    }
+    if (task.worktree != null && typeof task.worktree !== "object") {
+      throw new Error(`任务 ${uuid.slice(0, 8)} 的 worktree 必须是对象`);
+    }
+  }
+  return kanban as Kanban;
+}
+
 // ---- I/O ----
 
 export async function readKanban(): Promise<Kanban> {
@@ -78,12 +116,14 @@ export async function readKanban(): Promise<Kanban> {
         .join("; ")}`,
     );
   }
-  return (parsed ?? {}) as Kanban;
+  return validateKanban(parsed ?? {});
 }
 
 export async function writeKanban(data: Kanban): Promise<void> {
   const serialized = JSON.stringify(data, null, 2) + "\n";
-  await writeFile(KANBAN_FILE, serialized, "utf-8");
+  const tmp = KANBAN_FILE + ".tmp";
+  await writeFile(tmp, serialized, "utf-8");
+  await rename(tmp, KANBAN_FILE);
 }
 
 // ---- UUID 短前缀解析 ----
