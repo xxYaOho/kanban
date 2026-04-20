@@ -92,6 +92,7 @@ async function main() {
         report: null,
         review: null,
         test: null,
+        integration: null,
         error: null,
         blocked_on: null,
       };

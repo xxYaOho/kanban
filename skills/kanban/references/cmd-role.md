@@ -8,9 +8,10 @@
 /kanban --role developer "负责前端模块的 RBAC 实现"
 /kanban --role reviewer
 /kanban --role test "本轮只跑 boundary 和 security"
+/kanban --role integrator
 ```
 
-- `<role>` 必填位置参数:`developer` / `reviewer` / `test`
+- `<role>` 必填位置参数:`developer` / `reviewer` / `test` / `integrator`
 - `<context>` 可选:对应 `worktree.<name>.action`,即这个 worktree 要做什么
 
 ## 执行流程
@@ -23,43 +24,53 @@
 
 ```
 角色 `dev` 不存在(你是想选 developer 吗?)。请选择一个合法角色:
-(a) developer — 实现分配的任务
-(b) reviewer  — 审查 developer 交付
-(c) test      — 全面测试
-(d) 取消本次注册
+(a) developer  — 实现分配的任务
+(b) reviewer   — 审查 developer 交付
+(c) test       — 全面测试
+(d) integrator — 合并分支,产出 release candidate
+(e) 取消本次注册
 ```
 
 - 有高置信前缀/编辑距离匹配时,在话术里点名猜测
-- 用户选 (d) → 中止,kanban 不被修改
+- 用户选 (e) → 中止,kanban 不被修改
 
 ### 2. 定位任务
 
-`worktreeName = basename(pwd)`,按优先级:
+`worktreeName = basename(pwd)`,复用 SKILL.md 中的 **uuid 解析公共流程**:
 
-1. **已注册保护**:若 `task.worktree[worktreeName]` 在某任务中已存在 → 走冲突处理(见下)
-2. **唯一活跃任务**:`status ∈ { planned, in_progress, draft }` 中恰好只有一个 → 直接使用
-3. **多个活跃任务**:AskUserQuestion 列出 `<short-uuid> — <description>` 让用户选(draft 任务也出现在候选里)
-4. **无活跃任务**:报错并提示:
-   ```
-   ❌ 没有活跃任务。请先:
-     /kanban --new          # 创建任务
-     /kanban --update <uuid> status=planned  # 激活草案
-   ```
+1. 用户通过参数提供 uuid → 直接使用(支持短前缀 ≥6)
+2. 未提供 uuid → 按"uuid 解析公共流程"中的活跃任务筛选与候选逻辑执行
+3. 已注册保护:若 `task.worktree[worktreeName]` 在某任务中已存在 → 走冲突处理(见步骤 4)
+
+> 不在本文档内重复 uuid 解析细节,以 SKILL.md 的"uuid 解析公共流程"为准。
 
 ### 3. 采集 action
 
 **有 `<context>`**:直接作为 action 写入,不追问。
 
-**无 `<context>`**:AskUserQuestion,基于 plan.md 内容推荐 2~3 个可能的 action:
+**无 `<context>`**:AskUserQuestion,提供 plan 推断建议与默认 action:
 
 ```
-当前 worktree 尚未明确职责。根据 plan 推测,可能是:
-(a) 重构命令解析器
-(b) 实现 RBAC 中间件
-(c) 其他(请说明)
+当前 worktree 尚未明确职责。请选择:
+(a) 重构命令解析器                  (来自 plan)
+(b) 实现 RBAC 中间件                (来自 plan)
+(c) 使用默认描述:独立完成 plan 中分配的全部任务(全栈开发,含测试)
+(d) 其他(请说明)
 ```
 
-选 (c) 后接一轮自由文本输入。用户放弃或输入空 → 中止注册,kanban 不被修改。**action 不允许为空或占位符**。
+各角色默认 action:
+
+| 角色          | 默认 action                                                          |
+| ------------- | -------------------------------------------------------------------- |
+| `developer`   | 独立完成 plan 中分配的全部任务(全栈开发,含测试)                     |
+| `reviewer`    | 审查所有 developer 的交付,确保代码质量与 plan 一致                  |
+| `test`        | 执行全面测试(security / boundary / performance / integration)        |
+| `integrator`  | 合并所有 feature 分支到主干,解决冲突,产出 release candidate         |
+
+- 选项 (a)(b) 由 plan.md 内容推断生成
+- 选 (d) 后接一轮自由文本输入
+- 用户放弃或输入空 → 中止注册,kanban 不被修改
+- **action 不允许为空或占位符**
 
 ### 4. 冲突处理
 
@@ -92,22 +103,46 @@
 
 若任务 `status == "draft"`,注册后**不自动提升**到 planned,保持 draft。
 
-### 6. 注册后行为
+### 6. 工作准备
 
-注册完成后**不自动进入工作状态**。打印确认信息后提示下一步:
+注册完成后不自动进入工作状态,而是根据角色扫描当前任务状态,报告就绪情况并给出下一步建议。Agent 只报告状态和建议,由人决定是否执行。
+
+#### developer
+
+1. 读 plan.md,找到与 action 匹配的节
+2. 检查 `blocked_on` 字段:
+   - 为空 → `✅ 可以开工,建议:读 plan → 开发 → 提交报告`
+   - 有值 → `⚠️ 被 <worktree> 阻塞,需等待其完成后方可开工`
+
+#### reviewer
+
+1. 扫描当前任务下所有 worktree,找 `status == "waiting_review"` 的条目
+2. 有待审项 → 列出清单:`📝 待审: dev-serve (重构命令解析器), dev-api (RBAC 中间件)`
+3. 无待审项 → `ℹ️ 当前无待审任务,等待 developer 提交`
+
+#### test
+
+1. 检查当前任务下所有 developer worktree 是否已 `review_approved`
+2. 全部通过 → `✅ 所有 developer 交付已通过审查,可以开始测试`
+3. 有未完成项 → `⚠️ 以下 worktree 尚未通过审查: dev-serve, dev-api`
+
+#### integrator
+
+1. 检查当前任务下所有 worktree 是否已测试通过(对应角色的 test 流程完成)
+2. 全部就绪 → `✅ 所有分支已就绪,可以开始合并`
+3. 有未完成项 → `⚠️ 以下 worktree 尚未完成测试: dev-serve, dev-api`
+
+#### 通用输出格式
 
 ```
-✅ dev-serve 已注册 [developer]
-Task:   019d9b9f (CLI v0.14 优化)
-Action: 重构命令解析器
+✅ <worktree> 已注册 [<role>]
+Task:   <short-uuid> (<description>)
+Action: <action>
 Status: idle
 
-下一步:重新启动 Claude(或在当前会话继续),auto-trigger 将自动识别身份并进入工作模式。
-```
+<工作准备报告>
 
-若 plan.md 存在,附上 outline 的第一个匹配节标题作为定位提示:
-```
-Plan 对应节: ## 命令解析器重构
+Plan 对应节: ## <匹配节标题>    (若 plan.md 存在)
 ```
 
 ## 与 `--update` 的关系

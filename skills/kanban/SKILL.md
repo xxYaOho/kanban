@@ -1,7 +1,7 @@
 ---
 name: kanban
 description: |
-  Kanban 多 Agent 协作协议。管理 `~/.kanban/kanban.json` 中的任务状态机(draft/planned/in_progress/done/archived/aborted),在 git worktree 场景下自动识别当前 agent 身份(developer/reviewer/test)并加载对应角色手册。
+  Kanban 多 Agent 协作协议。管理 `~/.kanban/kanban.json` 中的任务状态机(draft/planned/in_progress/done/archived/aborted),在 git worktree 场景下自动识别当前 agent 身份(developer/reviewer/test/integrator)并加载对应角色手册。
   触发场景:
     ① 用户显式输入 `/kanban --init/--new/--update/--uuid/--role` 等子命令;
     ② cwd 是已登记在 kanban 里的 worktree 目录,需要推进任务(开发、评审、测试、交付报告);
@@ -33,6 +33,17 @@ description: |
 - 所有 TS 脚本通过 `bun run ~/.claude/skills/kanban/scripts/<name>.ts [args…]`
 - 写操作必须走 `scripts/kanban-lock.ts` 的 `withKanbanLock()`
 - 汇报简明:一行状态 + diff + 下一步建议,不复述全任务
+
+### uuid 解析公共流程
+
+`--role`、`--update`、`--uuid` 三个命令共用以下流程定位目标任务:
+
+1. 用户提供 uuid → 直接使用(支持短前缀 ≥6)
+2. 未提供 uuid → 读 kanban.json,筛选活跃任务(`status ∈ {in_progress, planned, draft}`)
+3. 恰好一个活跃任务 → 静默选中,执行结果中注明"已自动选择任务 <short>"
+4. 多个活跃任务 → AskUserQuestion 列出候选(`<short> — <description> [<status>]`),排序:`in_progress` 优先 > `planned` > `draft`
+5. 无活跃任务 → 提示"当前无活跃任务",建议 `--new` 创建或 `--update <uuid> status=planned` 激活
+6. 终态任务(`done / archived / aborted`)不列入候选
 
 ### 路径 B:自动触发(cwd 在某 worktree 内)
 
@@ -76,13 +87,14 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
     "updated": "2026-04-18T14:32:00+08:00",
     "worktree": {
       "dev-serve": {
-        "role": "developer", // developer | reviewer | test
+        "role": "developer", // developer | reviewer | test | integrator
         "action": "重构命令解析器",
         "status": "working", // idle | working | waiting_review | review_approved | review_rejected | done | blocked
         "attempt": 1,
         "report": "~/.kanban/wave/019d9b9f.../report-dev-serve-01.md",
         "review": null,
         "test": null,
+        "integration": null, // null | "pending" | "merged" | "conflict"
         "error": null,
         "blocked_on": null,
       },
@@ -107,7 +119,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 | ----------------------------------------------------------- | ---------- | --------------------------------------- |
 | `status`, `description`, `plan`, `draft`, `repo`, `created` | 人工领域   | `/kanban --new` / `--update`            |
 | `worktree.<name>.role`, `worktree.<name>.action`            | 人工领域   | `/kanban --new` / `--update` / `--role` |
-| `worktree.<name>.status/report/review/test/attempt/error/…` | Agent 领域 | 对应角色 Agent 工作中自动写入           |
+| `worktree.<name>.status/report/review/test/integration/attempt/error/…` | Agent 领域 | 对应角色 Agent 工作中自动写入           |
 | `updated`                                                   | 系统       | 每次写锁内自动刷新                      |
 
 ### 状态机
@@ -156,7 +168,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 
 - ❌ 绕过 `withKanbanLock` 直接写 `kanban.json`
 - ❌ 在 `status=draft` 任务上自动进入工作模式
-- ❌ 通过 `/kanban --update` 改 Agent 领域字段(`worktree.<name>.status/review/test/report/attempt/error/blocked_on`)
+- ❌ 通过 `/kanban --update` 改 Agent 领域字段(`worktree.<name>.status/review/test/report/integration/attempt/error/blocked_on`)
 - ❌ 把 draft 任务的 `plan` 文件当权威来源直接开工
 - ❌ 手动增删 `~/.kanban/.locks/` 下的文件
 
@@ -172,11 +184,12 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 
 ## 角色手册索引
 
-| Role        | Reference                      |
-| ----------- | ------------------------------ |
-| `developer` | `references/role-developer.md` |
-| `reviewer`  | `references/role-reviewer.md`  |
-| `test`      | `references/role-test.md`      |
+| Role         | Reference                      |
+| ------------ | ------------------------------ |
+| `developer`  | `references/role-developer.md` |
+| `reviewer`   | `references/role-reviewer.md`  |
+| `test`       | `references/role-test.md`      |
+| `integrator` | `references/role-integrator.md` |
 
 报告 frontmatter 规范:`references/frontmatter-templates.md`,生成报告前读一次。
 

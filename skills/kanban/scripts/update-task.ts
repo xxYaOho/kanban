@@ -30,6 +30,7 @@ const AGENT_WORKTREE_FIELD = new Set([
   "attempt",
   "error",
   "blocked_on",
+  "integration",
 ]);
 
 const _validStatusSet = new Set(VALID_TASK_STATUSES);
@@ -110,6 +111,7 @@ function ensureWorktreeDefaults(w: any) {
   if (w.report === undefined) w.report = null;
   if (w.review === undefined) w.review = null;
   if (w.test === undefined) w.test = null;
+  if (w.integration === undefined) w.integration = null;
   if (w.error === undefined) w.error = null;
   if (w.blocked_on === undefined) w.blocked_on = null;
 }

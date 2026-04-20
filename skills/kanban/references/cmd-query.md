@@ -6,7 +6,10 @@
 
 ```bash
 /kanban --uuid <uuid>         # uuid 支持短前缀 (≥6)
+/kanban --uuid                # 未提供 uuid 时走 uuid 解析公共流程
 ```
+
+**uuid 定位**：若未提供 uuid，遵循 SKILL.md 中的"uuid 解析公共流程"——筛选活跃任务，唯一则静默选中，多个则 AskUserQuestion 让用户选。
 
 ## 展示布局
 
@@ -65,6 +68,7 @@ test          test       idle           -        -
 | reviewer  | idle               | 检查所有 developer waiting_review 的 worktree,拉取报告 review |
 | reviewer  | working            | 继续 review                                            |
 | test      | idle               | 所有 dev worktree 都 approved 时,拉分支跑测,写 test-NN.md    |
+| integrator | idle              | 所有 dev worktree test 通过时,合并分支,写 integration-NN.md |
 | 任意      | blocked            | 读 `blocked_on` 字段,先解阻塞                         |
 
 ### Plan 正文预览

@@ -113,6 +113,50 @@ pass(或 fail + 失败原因摘要)
 - 失败点 2 → 指向 dev-gui 的具体代码位置
 ```
 
+## integration-report
+
+文件:`integration-<NN>.md`
+
+```markdown
+---
+kind: integration-report
+uuid: 019d9b9f-...
+worktree: integration
+role: integrator
+attempt: 1
+created: 2026-04-18T17:00:00+08:00
+merged_branches:
+  - feature/cli-v014-serve
+  - feature/cli-v014-gui
+conflicts_resolved: 3
+conflicts_escalated: []
+regression_result: pass               # pass | fail
+---
+
+# Integration Report — attempt 01
+
+## Merged Branches
+- feature/cli-v014-serve: merged (2 conflicts resolved)
+- feature/cli-v014-gui: merged (no conflicts)
+
+## Conflict Details
+### Resolved
+- src/cli/parser.ts: import ordering (auto-resolved)
+- ...
+
+### Escalated
+- (none)
+
+## Regression Results
+- Unit: 150 pass / 0 fail
+- Integration: 25 pass / 0 fail
+- E2E smoke: 8/8 pass
+
+## Integration Branch
+- Branch: integration/v0.14-attempt-01
+- Base: main
+```
+
 ## error-note(异常说明)
 
 文件:`<worktree>-<NN>-error.md` 或 `test-<NN>-error.md`

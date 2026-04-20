@@ -14,7 +14,7 @@ export type TaskStatus =
   | "archived"
   | "aborted";
 
-export type WorktreeRole = "developer" | "reviewer" | "test";
+export type WorktreeRole = "developer" | "reviewer" | "test" | "integrator";
 
 export type WorktreeStatus =
   | "idle"
@@ -33,6 +33,7 @@ export interface Worktree {
   report: string | null;
   review: string | null;
   test: string | null;
+  integration: null | "pending" | "merged" | "conflict";
   error: string | null;
   blocked_on: string | null;
 }
@@ -58,7 +59,7 @@ export type Kanban = Record<string, Task>;
 
 // ---- 集中常量 ----
 
-export const VALID_ROLES: readonly WorktreeRole[] = ["developer", "reviewer", "test"] as const;
+export const VALID_ROLES: readonly WorktreeRole[] = ["developer", "reviewer", "test", "integrator"] as const;
 
 export const VALID_TASK_STATUSES: readonly TaskStatus[] = [
   "draft", "planned", "in_progress", "done", "archived", "aborted",
