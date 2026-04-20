@@ -51,15 +51,12 @@ function parseArgs(argv: string[]) {
   };
 }
 
-async function checkDependency(): Promise<void> {
-  try {
-    await import("proper-lockfile");
-  } catch {
+function checkDependency(): void {
+  const nmPath = join(import.meta.dir, "..", "node_modules", "proper-lockfile");
+  if (!existsSync(nmPath)) {
     console.error("❌ 未检测到 proper-lockfile 依赖。");
     console.error("请在 skills/kanban/ 目录下安装依赖后再运行:");
     console.error("  cd ~/.claude/skills/kanban && bun install");
-    console.error("或使用 npm:");
-    console.error("  cd ~/.claude/skills/kanban && npm install");
     process.exit(1);
   }
 }
@@ -161,7 +158,7 @@ async function main() {
   }
 
   // 依赖检查
-  await checkDependency();
+  checkDependency();
 
   const args = parseArgs(process.argv.slice(2));
 
