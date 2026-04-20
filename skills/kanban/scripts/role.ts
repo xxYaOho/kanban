@@ -8,11 +8,14 @@
  *   --action <action>   worktree 职责描述(非空)
  *   --uuid <uuid>       目标任务 UUID(完整或短前缀,Agent 层已解析)
  *
- * stdout: JSON { ok, worktree, role, action, taskUuid, taskShort }
+ * stdout: JSON { ok, worktree, role, action, taskUuid, taskShort, autoStarted, autoStartReason? }
  * 冲突/错误: exit 1 + stderr
+ *
+ * developer 自动领取:新注册且 task.status ∈ {planned,in_progress} 且 blocked_on 为空时,
+ * 自动将 worktree.status 设为 "working"、attempt 设为 1,并将 task.status 从 planned 提升为 in_progress。
  */
 import { withKanbanLock } from "./kanban-lock";
-import { resolveUuid, type Kanban, type WorktreeRole, type WorktreeStatus, VALID_ROLES, TERMINAL_STATUSES } from "./kanban-io";
+import { resolveUuid, type Kanban, type TaskStatus, type WorktreeRole, type WorktreeStatus, VALID_ROLES, TERMINAL_STATUSES } from "./kanban-io";
 
 const _validRoleSet = new Set<WorktreeRole>(VALID_ROLES);
 const _terminalSet = new Set<string>(TERMINAL_STATUSES);
@@ -47,6 +50,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   let resultUuid = args.uuid;
+  let autoStarted = false;
+  let autoStartReason: string | null = null;
 
   await withKanbanLock(async (kanban: Kanban) => {
     // 解析 uuid
@@ -97,6 +102,29 @@ async function main() {
         blocked_on: null,
       };
     }
+
+    // Auto-start for developer when worktree is idle and conditions are met
+    if (args.role === "developer") {
+      const wt = task.worktree[args.worktree];
+      if (wt && wt.status === "idle") {
+        if (task.status === "draft") {
+          autoStartReason = "任务尚在 draft，需先提升到 planned";
+        } else if (task.status === "planned" || task.status === "in_progress") {
+          if (!wt.blocked_on) {
+            wt.status = "working";
+            wt.attempt = 1;
+            autoStarted = true;
+            if (task.status === "planned") {
+              task.status = "in_progress" as TaskStatus;
+            }
+          } else {
+            autoStartReason = `被 ${wt.blocked_on} 阻塞`;
+          }
+        } else {
+          autoStartReason = `任务状态为 ${task.status}`;
+        }
+      }
+    }
   });
 
   console.log(
@@ -108,6 +136,8 @@ async function main() {
         action: args.action,
         taskUuid: resultUuid,
         taskShort: resultUuid.slice(0, 8),
+        autoStarted,
+        ...(autoStartReason ? { autoStartReason } : {}),
       },
       null,
       2,

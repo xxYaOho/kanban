@@ -103,34 +103,47 @@
 
 若任务 `status == "draft"`,注册后**不自动提升**到 planned,保持 draft。
 
-### 6. 工作准备
+若 role=developer 且 task.status ∈ {planned, in_progress} 且 blocked_on 为空,注册时自动将 worktree.status 设为 `"working"`、attempt 设为 `1`。若此时 task.status 为 `"planned"`,同步提升为 `"in_progress"`。
 
-注册完成后不自动进入工作状态,而是根据角色扫描当前任务状态,报告就绪情况并给出下一步建议。Agent 只报告状态和建议,由人决定是否执行。
+### 6. 角色自然承接动作
+
+注册完成后,根据角色自动执行下一步。Agent 主动推进,无需 Human 额外指令。
 
 #### developer
 
+自动领取判断(脚本层完成,Agent 层读取输出):
+
 1. 读 plan.md,找到与 action 匹配的节
-2. 检查 `blocked_on` 字段:
-   - 为空 → `✅ 可以开工,建议:读 plan → 开发 → 提交报告`
-   - 有值 → `⚠️ 被 <worktree> 阻塞,需等待其完成后方可开工`
+2. 脚本自动检查条件:
+   - task.status ∈ {planned, in_progress} 且 blocked_on 为空 → **自动 working + attempt+1**,task.status 从 planned 提升为 in_progress(若适用)
+   - task.status == "draft" → 保持 idle,报告"任务尚在 draft,需先提升到 planned"
+   - blocked_on 有值 → 保持 idle,报告阻塞项
+3. Agent 根据脚本输出(`autoStarted` / `autoStartReason`)生成报告
 
 #### reviewer
 
-1. 扫描当前任务下所有 worktree,找 `status == "waiting_review"` 的条目
-2. 有待审项 → 列出清单:`📝 待审: dev-serve (重构命令解析器), dev-api (RBAC 中间件)`
-3. 无待审项 → `ℹ️ 当前无待审任务,等待 developer 提交`
+扫描当前任务下所有 worktree,找 `status == "waiting_review"` 的条目:
+1. 有待审项 → 列出清单:
+   ```
+   📝 待审: dev-serve (重构命令解析器), dev-api (RBAC 中间件)
+   建议: 选择一个待审项,开始 review 流程
+   ```
+2. 无待审项 → 保持在 idle:
+   ```
+   ℹ️ 当前无待审任务,等待 developer 提交
+   ```
 
 #### test
 
-1. 检查当前任务下所有 developer worktree 是否已 `review_approved`
-2. 全部通过 → `✅ 所有 developer 交付已通过审查,可以开始测试`
-3. 有未完成项 → `⚠️ 以下 worktree 尚未通过审查: dev-serve, dev-api`
+检查当前任务下所有 developer worktree 的审查状态:
+1. 全部 `review_approved` → `✅ 所有 developer 交付已通过审查,可以开始测试`
+2. 有未完成项 → `⚠️ 以下 worktree 尚未通过审查: dev-serve, dev-api`
 
 #### integrator
 
-1. 检查当前任务下所有 worktree 是否已测试通过(对应角色的 test 流程完成)
-2. 全部就绪 → `✅ 所有分支已就绪,可以开始合并`
-3. 有未完成项 → `⚠️ 以下 worktree 尚未完成测试: dev-serve, dev-api`
+检查当前任务下所有 worktree 的测试完成状态:
+1. 全部就绪 → `✅ 所有分支已就绪,可以开始合并`
+2. 有未完成项 → `⚠️ 以下 worktree 尚未完成测试: dev-serve, dev-api`
 
 #### 通用输出格式
 
@@ -138,9 +151,9 @@
 ✅ <worktree> 已注册 [<role>]
 Task:   <short-uuid> (<description>)
 Action: <action>
-Status: idle
+Status: <idle 或 working>
 
-<工作准备报告>
+<角色自然承接报告>
 
 Plan 对应节: ## <匹配节标题>    (若 plan.md 存在)
 ```
