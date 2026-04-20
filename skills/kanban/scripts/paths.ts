@@ -48,7 +48,7 @@ export function testPath(
 }
 
 /**
- * 把绝对路径转成 ~/.kanban/... 前缀风格(便于存到 jsonc 里可读)。
+ * 把绝对路径转成 ~/.kanban/... 前缀风格(便于存到 json 里可读)。
  * 若路径不在 ~/.kanban/ 下则保持原样。
  */
 export function toKanbanRel(abs: string): string {

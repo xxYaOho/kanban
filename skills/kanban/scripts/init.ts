@@ -184,7 +184,7 @@ async function main() {
     }
 
     if (args.reset) {
-      const ts = nowIso().replace(/[:+]/g, "-");
+      const ts = nowIso().slice(0, 19).replace(/[:T]/g, "-");
       const backupName = `kanban-backup-${ts}.tar.gz`;
       const backupPath = join(KANBAN_ROOT, "..", backupName);
       const parentDir = join(KANBAN_ROOT, "..");
