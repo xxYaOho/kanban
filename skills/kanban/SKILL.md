@@ -1,7 +1,7 @@
 ---
 name: kanban
 description: |
-  Kanban 多 Agent 协作协议。管理 `~/.kanban/kanban.jsonc` 中的任务状态机(draft/planned/in_progress/done/archived/aborted),在 git worktree 场景下自动识别当前 agent 身份(developer/reviewer/test)并加载对应角色手册。
+  Kanban 多 Agent 协作协议。管理 `~/.kanban/kanban.json` 中的任务状态机(draft/planned/in_progress/done/archived/aborted),在 git worktree 场景下自动识别当前 agent 身份(developer/reviewer/test)并加载对应角色手册。
   触发场景:
     ① 用户显式输入 `/kanban --init/--new/--update/--uuid/--role` 等子命令;
     ② cwd 是已登记在 kanban 里的 worktree 目录,需要推进任务(开发、评审、测试、交付报告);
@@ -10,7 +10,7 @@ description: |
 
 # Kanban Skill
 
-多 Agent(多 git worktree)共享一份 `~/.kanban/kanban.jsonc` 状态文件的协作协议。本 skill 约束**写入边界**、**并发安全**、**角色识别**三件事。
+多 Agent(多 git worktree)共享一份 `~/.kanban/kanban.json` 状态文件的协作协议。本 skill 约束**写入边界**、**并发安全**、**角色识别**三件事。
 
 ## 触发路径与参数分派
 
@@ -62,7 +62,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 
 ## 数据模型
 
-`~/.kanban/kanban.jsonc` 顶层是 `{ <uuid>: Task }` 字典:
+`~/.kanban/kanban.json` 顶层是 `{ <uuid>: Task }` 字典:
 
 ```jsonc
 {
@@ -71,7 +71,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
     "repo": "wave",
     "description": "CLI v0.14 优化",
     "draft": null, // 可选。原始需求草稿文件路径(不一定存在),用于追溯最初意图
-    "plan": "~/.kanban/wave/wave/019d9b9f.../plan.md",
+    "plan": "~/.kanban/wave/019d9b9f.../plan.md",
     "created": "2026-04-18T14:00:00Z",
     "updated": "2026-04-18T14:32:00Z",
     "worktree": {
@@ -80,7 +80,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
         "action": "重构命令解析器",
         "status": "working", // idle | working | waiting_review | review_approved | review_rejected | done | blocked
         "attempt": 1,
-        "report": "~/.kanban/wave/wave/019d9b9f.../report-dev-serve-01.md",
+        "report": "~/.kanban/wave/019d9b9f.../report-dev-serve-01.md",
         "review": null,
         "test": null,
         "error": null,
@@ -127,11 +127,11 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 **所有写操作必须走** `scripts/kanban-lock.ts` 的 `withKanbanLock(mutator)`:
 
 - 基于 `proper-lockfile` 的建议性文件锁
-- 锁文件:`~/.kanban/.locks/kanban.jsonc.lock`
+- 锁文件:`~/.kanban/.locks/kanban.json.lock`
 - 锁内:读 → mutate → 写回 → 刷新 `updated`
 - 竞争时最多重试 10 次,退避 ~100ms,全部失败抛错
 - 锁过期(stale)阈值 60 秒;写入采用 tmp + rename 原子操作
-- `kanban.jsonc` 中的注释在首次脚本写入后会被清除(脚本产出纯 JSON)
+- `kanban.json` 中的注释在首次脚本写入后会被清除(脚本产出纯 JSON)
 
 读操作不加锁。
 
@@ -139,10 +139,9 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 
 ```
 ~/.kanban/
-├── kanban.jsonc
+├── kanban.json
 ├── .locks/                  # ⚠️ 禁止手动删除
-├── package.json / bun.lockb / node_modules/
-├── wave/<repo>/<uuid>/
+├── <repo>/<uuid>/
 │   ├── plan.md
 │   ├── report-<worktree>-<NN>.md
 │   ├── review-<worktree>-<NN>.md
@@ -155,7 +154,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 
 ## ⛔ 禁止清单
 
-- ❌ 绕过 `withKanbanLock` 直接写 `kanban.jsonc`
+- ❌ 绕过 `withKanbanLock` 直接写 `kanban.json`
 - ❌ 在 `status=draft` 任务上自动进入工作模式
 - ❌ 通过 `/kanban --update` 改 Agent 领域字段(`worktree.<name>.status/review/test/report/attempt/error/blocked_on`)
 - ❌ 把 draft 任务的 `plan` 文件当权威来源直接开工

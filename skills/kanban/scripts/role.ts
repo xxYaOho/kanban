@@ -12,9 +12,10 @@
  * 冲突/错误: exit 1 + stderr
  */
 import { withKanbanLock } from "./kanban-lock";
-import { resolveUuid, type Kanban, type WorktreeRole, type WorktreeStatus } from "./kanban-io";
+import { resolveUuid, type Kanban, type WorktreeRole, type WorktreeStatus, VALID_ROLES, TERMINAL_STATUSES } from "./kanban-io";
 
-const VALID_ROLES = new Set<WorktreeRole>(["developer", "reviewer", "test"]);
+const _validRoleSet = new Set<WorktreeRole>(VALID_ROLES);
+const _terminalSet = new Set<string>(TERMINAL_STATUSES);
 
 interface Args {
   worktree: string;
@@ -36,7 +37,7 @@ function parseArgs(argv: string[]): Args {
     }
   }
   if (!a.worktree) throw new Error("缺参: --worktree");
-  if (!a.role || !VALID_ROLES.has(a.role)) throw new Error(`非法 role: ${a.role}`);
+  if (!a.role || !_validRoleSet.has(a.role)) throw new Error(`非法 role: ${a.role}`);
   if (!a.action || !a.action.trim()) throw new Error("--action 不能为空");
   if (!a.uuid) throw new Error("缺参: --uuid");
   return a as Args;
@@ -65,8 +66,7 @@ async function main() {
     const task = kanban[uuid];
     if (!task) throw new Error(`找不到任务: ${uuid}`);
 
-    const TERMINAL = new Set(["done", "archived", "aborted"]);
-    if (TERMINAL.has(task.status)) {
+    if (_terminalSet.has(task.status)) {
       throw new Error(`任务 ${uuid.slice(0, 8)} 已处于终态 [${task.status}],无法注册 worktree`);
     }
 

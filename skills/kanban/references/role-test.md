@@ -34,7 +34,7 @@ enter(cwd = <test-worktree>)
 
 ## 提交 test report
 
-1. **文件名**:`~/.kanban/wave/<repo>/<uuid>/test-<NN>.md`
+1. **文件名**:`~/.kanban/<repo>/<uuid>/test-<NN>.md`
    - NN 递增(第一次 01,第二次 02)
    - 每次全量测试一轮写一份
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `test-report` 模板,包含 `verdict: pass | fail`
@@ -65,5 +65,5 @@ enter(cwd = <test-worktree>)
 
 - ❌ 在前置条件不满足时开工(产生噪声,浪费一轮)
 - ❌ 自己修代码(发现 bug → 通过 test fail 反馈给 dev worktree)
-- ❌ 跳过 `withKanbanLock` 改 kanban.jsonc
+- ❌ 跳过 `withKanbanLock` 改 kanban.json
 - ❌ 任务顶层 `status = done` 的前提除了本次 test pass 还**必须**所有 worktree 状态为 `review_approved`(跳过 review 直接 done 违反协议)

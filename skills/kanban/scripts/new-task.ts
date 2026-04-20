@@ -20,6 +20,7 @@ import { resolve } from "path";
 import { withKanbanLock } from "./kanban-lock";
 import { waveDir, toKanbanRel } from "./paths";
 import type { Task, Worktree, WorktreeRole, WorktreeStatus } from "./kanban-io";
+import { VALID_ROLES, nowIso } from "./kanban-io";
 
 type Mode = "extract" | "fromFile" | "blank";
 
@@ -63,7 +64,7 @@ function normalizeWorktrees(
     if (!v || typeof v !== "object") continue;
     const role = v.role as WorktreeRole | undefined;
     const action = typeof v.action === "string" ? v.action : "";
-    if (!role || !["developer", "reviewer", "test"].includes(role)) continue;
+    if (!role || !(VALID_ROLES as readonly string[]).includes(role)) continue;
     out[name] = {
       role,
       action,
@@ -139,7 +140,7 @@ async function main() {
       description: args.description,
       draft: args.draftRef ?? null,
       plan: toKanbanRel(planTarget),
-      created: new Date().toISOString(),
+      created: nowIso(),
       worktree: worktrees,
     };
     kanban[uuid] = task;

@@ -27,7 +27,7 @@ UUID 允许短前缀(≥6),多候选时列表让用户选。
 ❌ 字段 `worktree.dev-serve.status` 属于 Agent 自主字段,/kanban --update 不允许修改。
    如需强制重置:
    (a) 让该 worktree 的 Agent 重新运行并自检(推荐)
-   (b) 人工直接编辑 ~/.kanban/kanban.jsonc(会破坏一致性,自行承担)
+   (b) 人工直接编辑 ~/.kanban/kanban.json(会破坏一致性,自行承担)
 ```
 
 ## 交互式流程
@@ -71,7 +71,7 @@ UUID 允许短前缀(≥6),多候选时列表让用户选。
    不满足则拒绝写入,列出缺失项:
    ```
    ❌ 无法提升 status → planned,缺失以下项:
-     - plan 文件为空: ~/.kanban/wave/wave/019d9b9f.../plan.md
+     - plan 文件为空: ~/.kanban/wave/019d9b9f.../plan.md
      - worktree.dev-serve.action 未填写
    ```
 

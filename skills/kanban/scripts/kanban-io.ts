@@ -1,9 +1,8 @@
 /**
- * kanban.jsonc I/O:读、解析、格式化。不负责加锁。
+ * kanban.json I/O:读、解析、格式化。不负责加锁。
  */
 import { readFile, writeFile, rename } from "fs/promises";
 import { existsSync } from "fs";
-import { parse as parseJsonc, ParseError } from "jsonc-parser";
 import { KANBAN_FILE } from "./paths";
 
 // ---- 类型 ----
@@ -57,15 +56,46 @@ export interface Task {
 
 export type Kanban = Record<string, Task>;
 
-const VALID_TASK_STATUSES = new Set<string>([
+// ---- 集中常量 ----
+
+export const VALID_ROLES: readonly WorktreeRole[] = ["developer", "reviewer", "test"] as const;
+
+export const VALID_TASK_STATUSES: readonly TaskStatus[] = [
   "draft", "planned", "in_progress", "done", "archived", "aborted",
-]);
+] as const;
+
+export const VALID_WORKTREE_STATUSES: readonly WorktreeStatus[] = [
+  "idle", "working", "waiting_review", "review_approved", "review_rejected", "done", "blocked",
+] as const;
+
+export const TERMINAL_STATUSES: readonly TaskStatus[] = ["done", "archived", "aborted"] as const;
+
+export const STATUS_DISPLAY_ORDER: readonly TaskStatus[] = [
+  "in_progress", "planned", "draft", "done", "archived", "aborted",
+] as const;
+
+const _validStatusSet = new Set<string>(VALID_TASK_STATUSES);
+
+// ---- 时间 ----
+
+export function nowIso(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const off = d.getTimezoneOffset();
+  const sign = off <= 0 ? "+" : "-";
+  const absOff = Math.abs(off);
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+    `${sign}${pad(Math.floor(absOff / 60))}:${pad(absOff % 60)}`
+  );
+}
 
 // ---- 校验 ----
 
 export function validateKanban(data: unknown): Kanban {
   if (data == null || typeof data !== "object") {
-    throw new Error("kanban.jsonc 根结构必须是对象");
+    throw new Error("kanban.json 根结构必须是对象");
   }
   const kanban = data as Record<string, unknown>;
   for (const [uuid, val] of Object.entries(kanban)) {
@@ -73,7 +103,7 @@ export function validateKanban(data: unknown): Kanban {
       throw new Error(`任务 ${uuid.slice(0, 8)} 的值必须是对象`);
     }
     const task = val as Record<string, unknown>;
-    if (typeof task.status !== "string" || !VALID_TASK_STATUSES.has(task.status)) {
+    if (typeof task.status !== "string" || !_validStatusSet.has(task.status)) {
       throw new Error(`任务 ${uuid.slice(0, 8)} 缺少合法 status 字段`);
     }
     if (typeof task.repo !== "string") {
@@ -100,23 +130,15 @@ export function validateKanban(data: unknown): Kanban {
 export async function readKanban(): Promise<Kanban> {
   if (!existsSync(KANBAN_FILE)) {
     throw new Error(
-      `kanban.jsonc 不存在: ${KANBAN_FILE}。先运行 /kanban --init`,
+      `kanban.json 不存在: ${KANBAN_FILE}。先运行 /kanban --init`,
     );
   }
   const raw = await readFile(KANBAN_FILE, "utf-8");
-  const errors: ParseError[] = [];
-  const parsed = parseJsonc(raw, errors, {
-    allowTrailingComma: true,
-    disallowComments: false,
-  });
-  if (errors.length > 0) {
-    throw new Error(
-      `kanban.jsonc 解析失败: ${errors
-        .map((e) => `offset=${e.offset} error=${e.error}`)
-        .join("; ")}`,
-    );
+  try {
+    return validateKanban(JSON.parse(raw) ?? {});
+  } catch (e) {
+    throw new Error(`kanban.json 解析失败: ${(e as Error).message}`);
   }
-  return validateKanban(parsed ?? {});
 }
 
 export async function writeKanban(data: Kanban): Promise<void> {

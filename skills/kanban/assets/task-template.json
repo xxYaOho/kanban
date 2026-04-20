@@ -1,0 +1,24 @@
+{
+  "<uuid>": {
+    "status": "planned",
+    "repo": "<repo>",
+    "description": "<一句话描述>",
+    "draft": null,
+    "plan": "~/.kanban/<repo>/<uuid>/plan.md",
+    "created": "<ISO8601>",
+    "updated": "<ISO8601>",
+    "worktree": {
+      "<worktree-name>": {
+        "role": "developer",
+        "action": "<这个 worktree 要做什么>",
+        "status": "idle",
+        "attempt": 0,
+        "report": null,
+        "review": null,
+        "test": null,
+        "error": null,
+        "blocked_on": null
+      }
+    }
+  }
+}

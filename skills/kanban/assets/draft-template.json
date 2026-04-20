@@ -1,0 +1,11 @@
+{
+  "<uuid>": {
+    "status": "draft",
+    "repo": "<repo>",
+    "description": "<草案描述>",
+    "draft": "~/path/to/requirements-draft.md",
+    "plan": "~/.kanban/<repo>/<uuid>/plan.md",
+    "created": "<ISO8601>",
+    "worktree": {}
+  }
+}

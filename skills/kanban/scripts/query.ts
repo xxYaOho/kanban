@@ -20,7 +20,12 @@ const BANNER_ICON: Record<string, string> = {
 
 function fmtTime(iso?: string): string {
   if (!iso) return "-";
-  return new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const off = d.getTimezoneOffset();
+  const sign = off <= 0 ? "+" : "-";
+  const absOff = Math.abs(off);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())} ${sign}${pad(Math.floor(absOff / 60))}:${pad(absOff % 60)}`;
 }
 
 function humanAgo(iso: string): string {
@@ -168,7 +173,7 @@ async function main() {
   }
 
   if (!existsSync(waveDir(task.repo, uuid!))) {
-    out += `\n⚠️  警告:任务目录不存在(${waveDir(task.repo, uuid!)}),kanban.jsonc 与文件系统不一致\n`;
+    out += `\n⚠️  警告:任务目录不存在(${waveDir(task.repo, uuid!)}),kanban.json 与文件系统不一致\n`;
   }
 
   console.log(out);

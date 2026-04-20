@@ -34,7 +34,7 @@ enter(cwd = <reviewer-worktree>)
 
 ## 提交 review
 
-1. **文件名**:`~/.kanban/wave/<repo>/<uuid>/review-<name>-<NN>.md`
+1. **文件名**:`~/.kanban/<repo>/<uuid>/review-<name>-<NN>.md`
    - NN 与对应 `report-<name>-<NN>.md` 保持一致
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `review` 模板(包括 `verdict: approve | reject` 字段)
 3. **原子提交**(锁内,针对被 review 的 worktree):

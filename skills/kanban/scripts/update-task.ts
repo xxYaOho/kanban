@@ -14,7 +14,7 @@
  */
 import { existsSync, statSync } from "fs";
 import { withKanbanLock } from "./kanban-lock";
-import { resolveUuid, type Kanban, type Task, type WorktreeRole } from "./kanban-io";
+import { resolveUuid, type Kanban, type Task, type WorktreeRole, VALID_TASK_STATUSES, VALID_ROLES } from "./kanban-io";
 import { fromKanbanRel } from "./paths";
 
 // 允许的顶层路径
@@ -32,15 +32,8 @@ const AGENT_WORKTREE_FIELD = new Set([
   "blocked_on",
 ]);
 
-const VALID_TASK_STATUS = new Set([
-  "draft",
-  "planned",
-  "in_progress",
-  "done",
-  "archived",
-  "aborted",
-]);
-const VALID_ROLE = new Set<WorktreeRole>(["developer", "reviewer", "test"]);
+const _validStatusSet = new Set(VALID_TASK_STATUSES);
+const _validRoleSet = new Set<WorktreeRole>(VALID_ROLES);
 
 type Op =
   | { kind: "set"; path: string; value: string }
@@ -64,7 +57,7 @@ function parseOps(argv: string[]): Op[] {
       if (!obj?.role || typeof obj.action !== "string") {
         throw new Error(`add-worktree 需要 {role, action}: ${raw}`);
       }
-      if (!VALID_ROLE.has(obj.role)) throw new Error(`非法 role: ${obj.role}`);
+      if (!_validRoleSet.has(obj.role)) throw new Error(`非法 role: ${obj.role}`);
       ops.push({ kind: "add-worktree", name, value: obj });
     } else if (raw.startsWith("del-worktree:")) {
       const name = raw.slice("del-worktree:".length);
@@ -105,7 +98,7 @@ function validatePromotable(task: Task): string[] {
   if (names.length === 0) errs.push("worktree 为空,需至少一个条目");
   for (const n of names) {
     const w = task.worktree[n] ?? {};
-    if (!w.role || !VALID_ROLE.has(w.role as WorktreeRole)) errs.push(`worktree.${n}.role 非法或缺失`);
+    if (!w.role || !_validRoleSet.has(w.role as WorktreeRole)) errs.push(`worktree.${n}.role 非法或缺失`);
     if (!w.action || !String(w.action).trim()) errs.push(`worktree.${n}.action 未填写`);
   }
   return errs;
@@ -149,7 +142,7 @@ async function main() {
         const pv = validatePath(op.path);
         if (pv.top) {
           if (pv.top === "status") {
-            if (!VALID_TASK_STATUS.has(op.value)) throw new Error(`非法 status: ${op.value}`);
+            if (!_validStatusSet.has(op.value)) throw new Error(`非法 status: ${op.value}`);
             (task as any).status = op.value;
           } else if (pv.top === "draft") {
             // 空字符串 → null(清除)
@@ -161,7 +154,7 @@ async function main() {
           const { name, field } = pv.worktree;
           const wt = task.worktree[name];
           if (!wt) throw new Error(`worktree.${name} 不存在`);
-          if (field === "role" && !VALID_ROLE.has(op.value as WorktreeRole)) {
+          if (field === "role" && !_validRoleSet.has(op.value as WorktreeRole)) {
             throw new Error(`非法 role: ${op.value}`);
           }
           (wt as any)[field] = op.value;

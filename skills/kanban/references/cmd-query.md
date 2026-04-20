@@ -16,7 +16,7 @@
 ```
 📋 Task 019d9b9f  [planned]  (CLI v0.14 优化)
 Repo:    wave
-Plan:    ~/.kanban/wave/wave/019d9b9f.../plan.md
+Plan:    ~/.kanban/wave/019d9b9f.../plan.md
 Created: 2026-04-18 14:00
 Updated: 2026-04-18 14:32
 ```
@@ -73,7 +73,7 @@ test          test       idle           -        -
 
 ### 最近报告列表
 
-按时间倒序列该任务 `~/.kanban/wave/<repo>/<uuid>/` 下的所有 `report-*.md` / `review-*.md` / `test-*.md`,带相对时间:
+按时间倒序列该任务 `~/.kanban/<repo>/<uuid>/` 下的所有 `report-*.md` / `review-*.md` / `test-*.md`,带相对时间:
 
 ```
 最近报告:
@@ -97,4 +97,4 @@ bun run ~/.claude/skills/kanban/scripts/query.ts <uuid>
 
 - UUID 找不到 → 列最近 5 个任务供用户重选
 - 短前缀多候选 → 列所有候选供选
-- 任务目录丢失(`~/.kanban/wave/<repo>/<uuid>/` 不存在) → 顶部标红警告,提示 `kanban.jsonc` 与文件系统不一致,建议 `/kanban --update <uuid>` 修正 plan 字段或手工恢复目录
+- 任务目录丢失(`~/.kanban/<repo>/<uuid>/` 不存在) → 顶部标红警告,提示 `kanban.json` 与文件系统不一致,建议 `/kanban --update <uuid>` 修正 plan 字段或手工恢复目录

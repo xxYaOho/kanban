@@ -1,5 +1,5 @@
 /**
- * kanban.jsonc 并发安全写入。
+ * kanban.json 并发安全写入。
  *
  * 用法:
  *   await withKanbanLock(async (kanban) => {
@@ -13,7 +13,7 @@ import lockfile from "proper-lockfile";
 import { mkdirSync, existsSync } from "fs";
 import { writeFileSync } from "fs";
 import { KANBAN_FILE, LOCKS_DIR, LOCK_FILE } from "./paths";
-import { readKanban, writeKanban, Kanban, Task } from "./kanban-io";
+import { readKanban, writeKanban, Kanban, Task, nowIso } from "./kanban-io";
 
 export interface LockOpts {
   retries?: number;
@@ -75,7 +75,7 @@ export async function withKanbanLock<T>(
     const result = await mutator(kanban);
 
     // 刷新 updated:显式比较每个顶层任务的关键字段
-    const now = new Date().toISOString();
+    const now = nowIso();
     for (const uuid of Object.keys(kanban)) {
       const b = beforeSnapshot[uuid];
       const a = kanban[uuid];

@@ -15,7 +15,7 @@ role: developer
 attempt: 1
 created: 2026-04-18T15:20:00Z
 status_after: waiting_review      # 本次提交后 worktree 的 status
-related_plan: ~/.kanban/wave/wave/019d9b9f.../plan.md
+related_plan: ~/.kanban/wave/019d9b9f.../plan.md
 branch: feature/cli-v014-serve    # 可选,本次对应的 git 分支
 ---
 
@@ -144,7 +144,7 @@ blocked_on: "plan 未说明 X 的错误处理语义"
 
 ## 字段约束
 
-- `created`:UTC,ISO8601,精确到秒
+- `created`:ISO8601,本地时区,精确到秒(如 `2026-04-18T15:20:00+08:00`)
 - `attempt`:整数,从 1 开始,每次重新工作递增
 - 所有枚举值大小写敏感,严格匹配文档
 - 路径可以用 `~/` 或相对 `~/.kanban/` 的相对路径,保持全局一致

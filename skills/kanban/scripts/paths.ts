@@ -5,14 +5,13 @@ import { homedir } from "os";
 import { join } from "path";
 
 export const KANBAN_ROOT = join(homedir(), ".kanban");
-export const KANBAN_FILE = join(KANBAN_ROOT, "kanban.jsonc");
+export const KANBAN_FILE = join(KANBAN_ROOT, "kanban.json");
 export const LOCKS_DIR = join(KANBAN_ROOT, ".locks");
-export const LOCK_FILE = join(LOCKS_DIR, "kanban.jsonc.lock");
-export const WAVE_ROOT = join(KANBAN_ROOT, "wave");
+export const LOCK_FILE = join(LOCKS_DIR, "kanban.json.lock");
 export const ARCHIVE_ROOT = join(KANBAN_ROOT, "archive");
 
 export function waveDir(repo: string, uuid: string): string {
-  return join(WAVE_ROOT, repo, uuid);
+  return join(KANBAN_ROOT, repo, uuid);
 }
 
 export function planPath(repo: string, uuid: string): string {

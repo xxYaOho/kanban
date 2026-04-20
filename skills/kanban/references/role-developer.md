@@ -39,7 +39,7 @@ enter(cwd = <worktree>)
 
 完成一次实现(或阶段性里程碑)时:
 
-1. **报告文件名**:`~/.kanban/wave/<repo>/<uuid>/report-<worktree>-<NN>.md`
+1. **报告文件名**:`~/.kanban/<repo>/<uuid>/report-<worktree>-<NN>.md`
    - NN 用两位零填充,递增(01, 02, 03)
    - `NN = current_attempt`
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `dev-report` 模板
@@ -76,5 +76,5 @@ enter(cwd = <worktree>)
 - ❌ 跨 worktree 写别人的 report/review/test 文件
 - ❌ 修改 `plan.md`(plan 变更必须走 `/kanban --update plan=...`)
 - ❌ 直接把自己置为 `done`(`done` 由 reviewer approve + test 通过后联合决定,见 role-reviewer.md)
-- ❌ 跳过 `withKanbanLock` 改 kanban.jsonc
+- ❌ 跳过 `withKanbanLock` 改 kanban.json
 - ❌ 在 `status=draft` 的任务里开工(先让用户提升到 planned)

@@ -4,7 +4,7 @@
  *
  * 纯读。按 status 分组输出所有任务摘要。
  */
-import { readKanban } from "./kanban-io";
+import { readKanban, STATUS_DISPLAY_ORDER } from "./kanban-io";
 
 function humanAgo(iso?: string): string {
   if (!iso) return "?";
@@ -23,9 +23,8 @@ async function main() {
     (byStatus[task.status] ??= []).push([uuid, task]);
   }
 
-  const order = ["in_progress", "planned", "draft", "done", "archived", "aborted"];
   let out = "";
-  for (const s of order) {
+  for (const s of STATUS_DISPLAY_ORDER) {
     const items = byStatus[s] ?? [];
     if (items.length === 0) continue;
     out += `\n== ${s.toUpperCase()} (${items.length}) ==\n`;

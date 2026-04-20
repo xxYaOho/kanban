@@ -86,7 +86,7 @@ bun run ~/.claude/skills/kanban/scripts/new-task.ts \
 UUID:   019d9b9f-7c0c-...
 Short:  019d9b9f
 Repo:   wave
-Plan:   ~/.kanban/wave/wave/019d9b9f.../plan.md
+Plan:   ~/.kanban/wave/019d9b9f.../plan.md
 Worktrees:
   - dev-serve  (developer)  重构命令解析器
   - review     (reviewer)   统一 review
@@ -99,7 +99,7 @@ Worktrees:
 UUID:   019d9b9f-...
 Short:  019d9b9f
 Repo:   wave
-Plan:   ~/.kanban/wave/wave/019d9b9f.../plan.md (占位)
+Plan:   ~/.kanban/wave/019d9b9f.../plan.md (占位)
 提示:
   /kanban --update 019d9b9f               # 逐项完善
   /kanban --update 019d9b9f status=planned # 校验并发布
