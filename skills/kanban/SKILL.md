@@ -72,8 +72,8 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
     "description": "CLI v0.14 优化",
     "draft": null, // 可选。原始需求草稿文件路径(不一定存在),用于追溯最初意图
     "plan": "~/.kanban/wave/019d9b9f.../plan.md",
-    "created": "2026-04-18T14:00:00Z",
-    "updated": "2026-04-18T14:32:00Z",
+    "created": "2026-04-18T14:00:00+08:00",
+    "updated": "2026-04-18T14:32:00+08:00",
     "worktree": {
       "dev-serve": {
         "role": "developer", // developer | reviewer | test

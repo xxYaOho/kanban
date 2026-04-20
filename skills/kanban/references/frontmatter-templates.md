@@ -13,7 +13,7 @@ uuid: 019d9b9f-7c0c-7e44-8f37-8a77ce1edcf7
 worktree: dev-serve
 role: developer
 attempt: 1
-created: 2026-04-18T15:20:00Z
+created: 2026-04-18T15:20:00+08:00
 status_after: waiting_review      # 本次提交后 worktree 的 status
 related_plan: ~/.kanban/wave/019d9b9f.../plan.md
 branch: feature/cli-v014-serve    # 可选,本次对应的 git 分支
@@ -49,7 +49,7 @@ worktree: dev-serve                # 被 review 的 worktree
 reviewer_worktree: review
 role: reviewer
 attempt: 1
-created: 2026-04-18T15:40:00Z
+created: 2026-04-18T15:40:00+08:00
 verdict: approve                   # approve | reject
 related_report: report-dev-serve-01.md
 ---
@@ -84,7 +84,7 @@ uuid: 019d9b9f-...
 test_worktree: test
 role: test
 attempt: 1
-created: 2026-04-18T16:30:00Z
+created: 2026-04-18T16:30:00+08:00
 verdict: pass                      # pass | fail
 covered_worktrees:
   - dev-serve
@@ -124,7 +124,7 @@ uuid: 019d9b9f-...
 worktree: dev-serve
 role: developer
 attempt: 1
-created: 2026-04-18T15:25:00Z
+created: 2026-04-18T15:25:00+08:00
 status_after: blocked
 blocked_on: "plan 未说明 X 的错误处理语义"
 ---
