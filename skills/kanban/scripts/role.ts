@@ -3,19 +3,29 @@
  * /kanban --role 实现
  *
  * 参数:
- *   --worktree <name>   当前 worktree 名(由 Agent 层传入 basename(pwd))
- *   --role <role>       developer | reviewer | test
- *   --action <action>   worktree 职责描述(非空)
- *   --uuid <uuid>       目标任务 UUID(完整或短前缀,Agent 层已解析)
+ *   --worktree <name>          当前 worktree 名(由 Agent 层传入 basename(pwd))
+ *   --role <role>              developer | reviewer | test | integrator
+ *   --action <action>          worktree 职责描述(非空)
+ *   --uuid <uuid>              目标任务 UUID(完整或短前缀,Agent 层已解析)
+ *   --claim-from <presetName>  可选:认领预分配槽位,将其 rename 为当前 worktree
  *
- * stdout: JSON { ok, worktree, role, action, taskUuid, taskShort, autoStarted, autoStartReason? }
+ * stdout: JSON { ok, worktree, role, action, taskUuid, taskShort, autoStarted, autoStartReason?, claimedFrom? }
  * 冲突/错误: exit 1 + stderr
  *
  * developer 自动领取:新注册且 task.status ∈ {planned,in_progress} 且 blocked_on 为空时,
  * 自动将 worktree.status 设为 "working"、attempt 设为 1,并将 task.status 从 planned 提升为 in_progress。
  */
 import { withKanbanLock } from "./kanban-lock";
-import { resolveUuid, type Kanban, type TaskStatus, type WorktreeRole, type WorktreeStatus, VALID_ROLES, TERMINAL_STATUSES } from "./kanban-io";
+import {
+  resolveUuid,
+  type Kanban,
+  type TaskStatus,
+  type Worktree,
+  type WorktreeRole,
+  type WorktreeStatus,
+  VALID_ROLES,
+  TERMINAL_STATUSES,
+} from "./kanban-io";
 
 const _validRoleSet = new Set<WorktreeRole>(VALID_ROLES);
 const _terminalSet = new Set<string>(TERMINAL_STATUSES);
@@ -25,6 +35,7 @@ interface Args {
   role: WorktreeRole;
   action: string;
   uuid: string;
+  claimFrom?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -37,6 +48,7 @@ function parseArgs(argv: string[]): Args {
       case "--role": a.role = v as WorktreeRole; i++; break;
       case "--action": a.action = v; i++; break;
       case "--uuid": a.uuid = v; i++; break;
+      case "--claim-from": a.claimFrom = v; i++; break;
     }
   }
   if (!a.worktree) throw new Error("缺参: --worktree");
@@ -49,9 +61,15 @@ function parseArgs(argv: string[]): Args {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
+  // 防御性校验：claim-from 不能等于 worktree
+  if (args.claimFrom && args.claimFrom === args.worktree) {
+    throw new Error("--claim-from 不能等于 --worktree（名称相同时无需认领）");
+  }
+
   let resultUuid = args.uuid;
   let autoStarted = false;
   let autoStartReason: string | null = null;
+  let claimedFrom: string | null = null;
 
   await withKanbanLock(async (kanban: Kanban) => {
     // 解析 uuid
@@ -72,26 +90,59 @@ async function main() {
     if (!task) throw new Error(`找不到任务: ${uuid}`);
 
     if (_terminalSet.has(task.status)) {
-      throw new Error(`任务 ${uuid.slice(0, 8)} 已处于终态 [${task.status}],无法注册 worktree`);
+      throw new Error(
+        `任务 ${uuid.slice(0, 8)} 已处于终态 [${task.status}]，无法注册 worktree`,
+      );
     }
 
+    // ══════════════════════════════════════════════
+    // 三路合一：claim / 幂等 / 新建
+    // ══════════════════════════════════════════════
+    let target: Partial<Worktree>;
     const existing = task.worktree[args.worktree];
 
-    if (existing) {
-      // 冲突处理
+    if (args.claimFrom) {
+      // ── 路径 A：认领预分配槽位 ──
+      const preset = task.worktree[args.claimFrom];
+      if (!preset) {
+        throw new Error(
+          `预分配槽位 ${args.claimFrom} 不存在或已被其他 worktree 认领`,
+        );
+      }
+      if (preset.status !== "idle" || (preset.attempt ?? 0) > 0) {
+        throw new Error(
+          `槽位 ${args.claimFrom} 已被认领 (status=${preset.status}, attempt=${preset.attempt})`,
+        );
+      }
+      if (preset.role !== args.role) {
+        throw new Error(
+          `槽位 ${args.claimFrom} 的角色是 ${preset.role}，与请求的 ${args.role} 不匹配`,
+        );
+      }
+      if (existing) {
+        throw new Error(
+          `当前 worktree ${args.worktree} 已在任务中注册，无法同时认领槽位`,
+        );
+      }
+      // 原子 rename：继承预分配字段，统一标记 attempt=1
+      target = { ...preset };
+      target.attempt = 1;
+      delete task.worktree[args.claimFrom];
+      task.worktree[args.worktree] = target;
+      claimedFrom = args.claimFrom;
+    } else if (existing) {
+      // ── 路径 B：已有条目，冲突检查 ──
       if (existing.role !== args.role) {
         throw new Error(
-          `ROLE_CONFLICT:worktree ${args.worktree} 已注册为 ${existing.role},` +
+          `ROLE_CONFLICT：worktree ${args.worktree} 已注册为 ${existing.role}，` +
             `跨角色切换请走: /kanban --update ${uuid.slice(0, 8)} worktree.${args.worktree}.role=${args.role}`,
         );
       }
-      // 同角色:幂等刷新 action
-      existing.action = args.action;
+      target = existing;
     } else {
-      // 新建
-      task.worktree[args.worktree] = {
+      // ── 路径 C：全新注册 ──
+      target = {
         role: args.role,
-        action: args.action,
         status: "idle" as WorktreeStatus,
         attempt: 0,
         report: null,
@@ -101,12 +152,16 @@ async function main() {
         error: null,
         blocked_on: null,
       };
+      task.worktree[args.worktree] = target;
     }
 
-    // Auto-start for developer when worktree is idle and conditions are met
+    // ── 统一赋值 action ──
+    target.action = args.action;
+
+    // ── Auto-start（developer 专属，逻辑不变）──
     if (args.role === "developer") {
-      const wt = task.worktree[args.worktree];
-      if (wt && wt.status === "idle") {
+      const wt = task.worktree[args.worktree]!;
+      if (wt.status === "idle") {
         if (task.status === "draft") {
           autoStartReason = "任务尚在 draft，需先提升到 planned";
         } else if (task.status === "planned" || task.status === "in_progress") {
@@ -138,6 +193,7 @@ async function main() {
         taskShort: resultUuid.slice(0, 8),
         autoStarted,
         ...(autoStartReason ? { autoStartReason } : {}),
+        ...(claimedFrom ? { claimedFrom } : {}),
       },
       null,
       2,

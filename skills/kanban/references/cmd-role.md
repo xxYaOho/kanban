@@ -44,6 +44,58 @@
 
 > 不在本文档内重复 uuid 解析细节,以 SKILL.md 的"uuid 解析公共流程"为准。
 
+### 2.5 槽位匹配（仅当 `task.worktree[worktreeName]` 不存在时）
+
+当前 worktree 名尚未在任务中注册时，检查是否有可认领的预分配槽位。
+
+**读取空置槽位**：调用 `query.ts --uuid <uuid>`，从输出的 JSON 块中获取 `idleSlots[<role>]`。
+
+**扫描条件**（`query.ts` 内部实现）：遍历 `task.worktree`，筛选满足以下全部条件的条目：
+- `role` === 用户传入的 `<role>`
+- `status` === `"idle"`
+- `attempt` === `0`
+
+**分支处理**：
+
+**无空置槽位** → 跳过本步骤，进入步骤 3（正常创建新条目）。
+
+**有 1 个空置槽位** → AskUserQuestion：
+
+```
+检测到预分配槽位 "<slotName>" (<role> — <action>)，是否认领？
+(a) 认领该槽位
+(b) 不认领，创建独立的新角色
+(c) 取消
+```
+
+- 用户选 (a) → 脚本传 `--claim-from <slotName>`，继续步骤 3 采集 action（预分配的 action 作为默认建议）
+- 用户选 (b) → 不传 `--claim-from`，继续步骤 3
+- 用户选 (c) → 中止，kanban 不被修改
+
+**有多个空置槽位** → AskUserQuestion 列出所有候选：
+
+```
+当前任务有以下空置的 <role> 槽位：
+(a) <slotName1> — <action1>
+(b) <slotName2> — <action2>
+(c) 不认领，创建独立的新角色
+(d) 取消
+```
+
+- 用户选某个槽位 → 脚本传对应的 `--claim-from`
+- 用户选 (c) → 不传 `--claim-from`，正常创建
+- 用户选 (d) → 中止
+
+**名称相同时的处理**：若 `worktreeName` 恰好等于某个预分配槽位名，无需认领——直接走正常的"同角色幂等"路径即可，不传 `--claim-from`。
+
+**认领时的 action 处理**：
+- 若用户在命令中提供了 `<context>`（如 `/kanban --role developer "负责音频模块"`），使用用户提供的 action
+- 若未提供 `<context>`，将预分配槽位的原始 action 作为默认建议呈现在步骤 3 的 AskUserQuestion 中
+
+**认领失败恢复**：若 `role.ts` 返回槽位不存在/已被认领的错误（TOCTOU 竞争导致），Agent 不应将错误原样展示给用户。应重新调用 `query.ts` 获取最新的空置槽位列表：
+- 仍有同角色空置槽位 → 重新展示候选："刚才选择的槽位已被其他 Agent 认领，以下是当前可用的槽位：..."
+- 无空置槽位 → 回退到正常创建流程："所有预分配槽位已被认领，将为当前 worktree 创建新的角色条目。"
+
 ### 3. 采集 action
 
 **有 `<context>`**:直接作为 action 写入,不追问。
@@ -145,6 +197,19 @@
 1. 全部就绪 → `✅ 所有分支已就绪,可以开始合并`
 2. 有未完成项 → `⚠️ 以下 worktree 尚未完成测试: dev-serve, dev-api`
 
+#### 认领槽位时的输出格式
+
+```
+✅ <worktree> 已注册 [<role>]（认领自预分配槽位 <presetName>）
+Task: <short-uuid> (<description>)
+Action: <action>
+Status: <idle 或 working>
+
+<角色自然承接报告>
+
+Plan 对应节: ## <匹配节标题> (若 plan.md 存在)
+```
+
 #### 通用输出格式
 
 ```
@@ -169,7 +234,10 @@ bun run ~/.claude/skills/kanban/scripts/role.ts \
   --worktree <name> \
   --role <role> \
   --action <action> \
-  --uuid <uuid>
+  --uuid <uuid> \
+  [--claim-from <presetName>]
 ```
+
+`--claim-from` 仅当用户在步骤 2.5 选择了认领预分配槽位时才传入。
 
 Agent 层负责交互采集(role 校验、action 追问、任务定位),脚本只接收已决策的参数并执行写入。

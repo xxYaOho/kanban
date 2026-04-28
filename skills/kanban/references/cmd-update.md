@@ -248,6 +248,12 @@ bun run ~/.claude/skills/kanban/scripts/update-task.ts <uuid> <op>...
 
 Agent 负责把交互式选择翻译成这些 op,再调脚本。
 
+## 删除 worktree 条目的注意事项
+
+- 删除 `status=idle, attempt=0` 的条目是安全的——这是未被认领的预分配槽位，无工作历史
+- 删除 `status` 非 idle 或 `attempt > 0` 的条目会丢失该 worktree 的工作历史（report、review 等文件不会被删除，但 kanban 中的状态追踪会断裂）
+- 若目的是将预分配槽位映射到真实 worktree 名，优先使用 `/kanban --role` 的认领机制，而非先删后建
+
 ## 撤销
 
 **不支持**。每次提交前的 diff + 二次确认已足够防误操作。如需恢复历史,建议 `cd ~/.kanban && git init` 用 git 管理状态文件。

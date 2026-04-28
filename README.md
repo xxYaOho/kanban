@@ -45,6 +45,8 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 
    在各 worktree 中执行 `/kanban --role developer` 等，Agent 自动登记身份并加载对应角色手册。
 
+   > **槽位匹配**：`--new` 创建任务时，Agent 根据 plan 预规划 worktree 名称与角色。执行 `--role` 时，若当前 worktree 名与预规划不同，Agent 会自动检测同角色的空置槽位并提供认领选项，避免产生孤儿条目。认领操作会将预分配名替换为你的真实 worktree 名。
+
 3. **开发与评审循环**
 
    developer 完成工作 → 写 dev report → `status` 变为 `waiting_review`  

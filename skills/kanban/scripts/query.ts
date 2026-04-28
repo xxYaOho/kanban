@@ -3,6 +3,9 @@
  * /kanban --uuid <uuid>
  *
  * 站在当前 worktree(若在)的视角,展示任务全貌与下一步建议。纯读,不加锁。
+ *
+ * stdout 末尾输出 JSON 块（以 \0JSON\n 为分隔,包含 idleSlots 等结构化数据）,
+ * 供 Agent 层解析使用。
  */
 import { basename } from "path";
 import { readdirSync, statSync, existsSync } from "fs";
@@ -104,6 +107,18 @@ function listReports(repo: string, uuid: string): string[] {
     .map((x) => `  ${humanAgo(new Date(x.mtime).toISOString()).padEnd(8)}  ${x.name}`);
 }
 
+function buildIdleSlots(task: Task): Record<string, Array<{ slotName: string; action: string }>> {
+  const idleSlots: Record<string, Array<{ slotName: string; action: string }>> = {};
+  for (const [wtName, wt] of Object.entries(task.worktree ?? {})) {
+    const w = wt as Partial<Worktree>;
+    if (w.status === "idle" && (w.attempt ?? 0) === 0 && w.role) {
+      if (!idleSlots[w.role]) idleSlots[w.role] = [];
+      idleSlots[w.role].push({ slotName: wtName, action: w.action ?? "" });
+    }
+  }
+  return idleSlots;
+}
+
 async function main() {
   const [uuidPrefix] = process.argv.slice(2);
   if (!uuidPrefix) { console.error("用法:query.ts <uuid>"); process.exit(1); }
@@ -175,6 +190,11 @@ async function main() {
   if (!existsSync(waveDir(task.repo, uuid!))) {
     out += `\n⚠️  警告:任务目录不存在(${waveDir(task.repo, uuid!)}),kanban.json 与文件系统不一致\n`;
   }
+
+  // ── 结构化数据输出（供 Agent 层解析）──
+  const idleSlots = buildIdleSlots(task);
+  const jsonBlock = JSON.stringify({ idleSlots });
+  out += `\n\0JSON\n${jsonBlock}\n`;
 
   console.log(out);
 }
