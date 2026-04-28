@@ -8,6 +8,7 @@
  *   --description <desc>
  *   --plan-content-file <path>   extract 模式:Agent 整理好的 plan 写到临时文件
  *   --plan-file <path>           fromFile 模式:原始文件路径(脚本负责拷贝)
+ *   --plan-ref <path>            引用已有 plan 文件(不拷贝,plan 字段存原始路径)
  *   --draft-ref <path>           可选:原始需求草稿路径(记录用,不拷贝)
  *   --worktrees-json <json>      可选:worktree 字典 JSON
  *
@@ -30,6 +31,7 @@ interface Args {
   description: string;
   planContentFile?: string;
   planFile?: string;
+  planRef?: string;
   draftRef?: string;
   worktreesJson?: string;
 }
@@ -45,6 +47,7 @@ function parseArgs(argv: string[]): Args {
       case "--description": a.description = v; i++; break;
       case "--plan-content-file": a.planContentFile = v; i++; break;
       case "--plan-file": a.planFile = v; i++; break;
+      case "--plan-ref": a.planRef = v; i++; break;
       case "--draft-ref": a.draftRef = v; i++; break;
       case "--worktrees-json": a.worktreesJson = v; i++; break;
     }
@@ -87,22 +90,32 @@ async function main() {
   const uuid = randomUUID().toLowerCase();
   const short = uuid.slice(0, 8);
   const dir = waveDir(args.repo, uuid);
-  await mkdir(dir, { recursive: true });
   const planTarget = resolve(dir, "plan.md");
+  await mkdir(dir, { recursive: true });
+  let planPath: string;
 
-  // 写 plan.md
-  if (args.mode === "fromFile") {
-    if (!args.planFile) throw new Error("fromFile 模式必须传 --plan-file");
-    const src = resolve(args.planFile);
-    if (!existsSync(src)) throw new Error(`--plan-file 不存在: ${src}`);
-    await copyFile(src, planTarget);
-  } else if (args.mode === "extract") {
-    if (!args.planContentFile) throw new Error("extract 模式必须传 --plan-content-file");
-    const content = await readFile(resolve(args.planContentFile), "utf-8");
-    await writeFile(planTarget, content, "utf-8");
+  // 写 plan.md（或引用已有文件）
+  if (args.planRef) {
+    const ref = resolve(args.planRef).replace(/^\/Users\/[^/]+/, "~");
+    if (!existsSync(resolve(args.planRef))) throw new Error(`--plan-ref 不存在: ${args.planRef}`);
+    planPath = ref;
   } else {
-    // blank
-    await writeFile(planTarget, `# ${args.description}\n\n(待完善)\n`, "utf-8");
+    if (args.mode === "fromFile") {
+      if (!args.planFile) throw new Error("fromFile 模式必须传 --plan-file");
+      const src = resolve(args.planFile);
+      if (!existsSync(src)) throw new Error(`--plan-file 不存在: ${src}`);
+      await copyFile(src, planTarget);
+      planPath = toKanbanRel(planTarget);
+    } else if (args.mode === "extract") {
+      if (!args.planContentFile) throw new Error("extract 模式必须传 --plan-content-file");
+      const content = await readFile(resolve(args.planContentFile), "utf-8");
+      await writeFile(planTarget, content, "utf-8");
+      planPath = toKanbanRel(planTarget);
+    } else {
+      // blank
+      await writeFile(planTarget, `# ${args.description}\n\n(待完善)\n`, "utf-8");
+      planPath = toKanbanRel(planTarget);
+    }
   }
 
   // 决定 status
@@ -120,16 +133,16 @@ async function main() {
   }
 
   // planned 校验
-  if (status === "planned") {
+  if (status === "planned" && !args.planRef) {
     const planStat = await stat(planTarget);
     if (planStat.size === 0) throw new Error("planned 状态要求 plan.md 非空");
     const planContent = await readFile(planTarget, "utf-8");
     if (planContent.trim().length === 0) throw new Error("planned 状态要求 plan.md 内容非空白");
-    if (Object.keys(worktrees).length === 0) {
-      throw new Error(
-        "planned 状态要求 worktree 至少一个条目。若暂时没想好,改走 blank 模式",
-      );
-    }
+  }
+  if (status === "planned" && Object.keys(worktrees).length === 0) {
+    throw new Error(
+      "planned 状态要求 worktree 至少一个条目。若暂时没想好,改走 blank 模式",
+    );
   }
 
   // 原子写入
@@ -140,7 +153,7 @@ async function main() {
       repo: args.repo,
       description: args.description,
       draft: args.draftRef ?? null,
-      plan: toKanbanRel(planTarget),
+      plan: planPath,
       created: nowIso(),
       worktree: worktrees,
     };
@@ -154,7 +167,7 @@ async function main() {
         uuid,
         short,
         dir,
-        planTarget: toKanbanRel(planTarget),
+        planTarget: args.planRef ? planPath : toKanbanRel(planTarget),
         status,
         worktrees: Object.keys(worktrees),
       },
