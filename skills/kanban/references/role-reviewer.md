@@ -37,13 +37,23 @@ enter(cwd = <reviewer-worktree>)
 1. **文件名**:`~/.kanban/<repo>/<uuid>/review-<name>-<NN>.md`
    - NN 与对应 `report-<name>-<NN>.md` 保持一致
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `review` 模板(包括 `verdict: approve | reject` 字段)
-3. **原子提交**(锁内,针对被 review 的 worktree):
+3. **原子提交**(针对被 review 的 developer worktree `<name>`):
    - approve:
-     - `worktree[name].status = "review_approved"`
-     - `worktree[name].review = <review 路径>`
+     ```bash
+     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+       --uuid <uuid> \
+       --worktree <name> \
+       --set status=review_approved \
+       --set review=~/.kanban/<repo>/<uuid>/review-<name>-<NN>.md
+     ```
    - reject:
-     - `worktree[name].status = "review_rejected"`
-     - `worktree[name].review = <review 路径>`
+     ```bash
+     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+       --uuid <uuid> \
+       --worktree <name> \
+       --set status=review_rejected \
+       --set review=~/.kanban/<repo>/<uuid>/review-<name>-<NN>.md
+     ```
      - 同时在 review 正文里列出具体要改的点
 4. **汇报**:
    ```
@@ -59,9 +69,17 @@ enter(cwd = <reviewer-worktree>)
 当**所有** developer worktree 都进入 `review_approved`:
 - 不要直接把任务设 `done`
 - 让 test worktree 接力;test 通过后由 test worktree(或 reviewer 终审)推顶层 `status = done`
-- 若没有 test worktree(极少数情况),reviewer 可直接在锁内:
-  - 所有 `worktree[name].status = "done"`
-  - 任务顶层 `status = "done"`
+- 若没有 test worktree(极少数情况),reviewer 可按顺序执行:
+  - 对每个 developer worktree:
+    ```bash
+    bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+      --uuid <uuid> --worktree <name> --set status=done
+    ```
+  - 任务收尾:
+    ```bash
+    bun run ~/.claude/skills/kanban/scripts/update-task.ts \
+      <uuid> set:status=done
+    ```
 
 ## 禁忌
 

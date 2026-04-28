@@ -15,14 +15,14 @@ enter(cwd = <worktree>)
 │
 ├─ status == "idle"
 │   └─ 读 plan.md + action 开工
-│      → 锁内:worktree[你].status = "working", attempt+=1
+│      → bun run agent-write.ts --uuid <uuid> --worktree <你> --set status=working --set attempt=<current+1>
 │
 ├─ status == "working"
 │   └─ 继续未完成的工作;若退出前未收尾,保持 "working"
 │
 ├─ status == "review_rejected"
 │   └─ 读最新 review-<你>-<NN>.md,依据修改
-│      → 锁内:status = "working"
+│      → bun run agent-write.ts --uuid <uuid> --worktree <你> --set status=working
 │      → 修完后同 "working" 的提交流程
 │
 ├─ status == "waiting_review"
@@ -43,11 +43,20 @@ enter(cwd = <worktree>)
    - NN 用两位零填充,递增(01, 02, 03)
    - `NN = current_attempt`
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `dev-report` 模板
-3. **原子提交**(锁内):
-   - `worktree[你].status = "waiting_review"`
-   - `worktree[你].report = <报告相对路径>`
-   - `worktree[你].error = null`
-   - 若任务顶层 `status == "planned"` 且本次是第一个进入 working 的 worktree,顺带设 `status = "in_progress"`
+3. **原子提交**(两条命令,顺序执行):
+   - ```bash
+     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+       --uuid <uuid> \
+       --worktree <你> \
+       --set status=waiting_review \
+       --set report=~/.kanban/<repo>/<uuid>/report-<你>-<NN>.md \
+       --set error=null
+     ```
+   - 若任务顶层 `status == "planned"` 且本次是第一个进入 working 的 worktree:
+     ```bash
+     bun run ~/.claude/skills/kanban/scripts/update-task.ts \
+       <uuid> set:status=in_progress
+     ```
 4. **汇报**:
    ```
    ✅ dev-serve 报告已提交 (attempt 01)
@@ -60,10 +69,15 @@ enter(cwd = <worktree>)
 
 ### 实现卡住 / 需要决策
 
-写 `*-error.md` 说明问题,锁内设:
-- `worktree[你].status = "blocked"`
-- `worktree[你].blocked_on = "<文件名或理由>"`
-- `worktree[你].error = "<一句话>"`
+写 `*-error.md` 说明问题,执行:
+- ```bash
+  bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+    --uuid <uuid> \
+    --worktree <你> \
+    --set status=blocked \
+    --set blocked_on=<文件名或理由> \
+    --set error=<一句话>
+  ```
 
 汇报时明确指出该任务现在**阻塞在哪**,让用户/reviewer/其他 worktree 介入。
 

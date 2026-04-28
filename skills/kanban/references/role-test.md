@@ -38,16 +38,42 @@ enter(cwd = <test-worktree>)
    - NN 递增(第一次 01,第二次 02)
    - 每次全量测试一轮写一份
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `test-report` 模板,包含 `verdict: pass | fail`
-3. **原子提交**(锁内):
+3. **原子提交**(按顺序执行):
    - pass:
-     - 所有 dev worktree `status = "done"`
-     - reviewer worktree `status = "done"`
-     - 自己 `status = "done"`
-     - 任务顶层 `status = "done"`
+     - 对每个 developer worktree `<dev>`:
+       ```bash
+       bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+         --uuid <uuid> --worktree <dev> --set status=done
+       ```
+     - 对每个 reviewer worktree `<rev>`:
+       ```bash
+       bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+         --uuid <uuid> --worktree <rev> --set status=done
+       ```
+     - 自己:
+       ```bash
+       bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+         --uuid <uuid> --worktree <自己> --set status=done \
+         --set test=~/.kanban/<repo>/<uuid>/test-<NN>.md
+       ```
+     - 任务收尾:
+       ```bash
+       bun run ~/.claude/skills/kanban/scripts/update-task.ts \
+         <uuid> set:status=done
+       ```
    - fail:
-     - 自己 `status = "idle"`(等下一轮)
-     - 把需要重做的 developer worktree `status = "review_rejected"`,并在 test report 里指向对应改动点
-     - 任务顶层保持 `in_progress`
+     - 自己:
+       ```bash
+       bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+         --uuid <uuid> --worktree <自己> --set status=idle \
+         --set test=~/.kanban/<repo>/<uuid>/test-<NN>.md
+       ```
+     - 对每个需重做的 developer worktree `<dev>`:
+       ```bash
+       bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+         --uuid <uuid> --worktree <dev> --set status=review_rejected
+       ```
+     - 任务顶层保持 `in_progress`(不需调 update-task.ts)
 4. **汇报**:
    ```
    ✅ Test 通过 (attempt 01)

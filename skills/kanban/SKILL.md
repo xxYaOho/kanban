@@ -119,7 +119,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 | ----------------------------------------------------------- | ---------- | --------------------------------------- |
 | `status`, `description`, `plan`, `draft`, `repo`, `created` | 人工领域   | `/kanban --new` / `--update`            |
 | `worktree.<name>.role`, `worktree.<name>.action`            | 人工领域   | `/kanban --new` / `--update` / `--role` |
-| `worktree.<name>.status/report/review/test/integration/attempt/error/…` | Agent 领域 | 对应角色 Agent 工作中自动写入           |
+| `worktree.<name>.status/report/review/test/integration/attempt/error/…` | Agent 领域 | `scripts/agent-write.ts`                |
 | `updated`                                                   | 系统       | 每次写锁内自动刷新                      |
 
 ### 状态机

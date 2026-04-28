@@ -21,8 +21,8 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 │   ├─ 无 blocked 状态的 worktree
 │   └─ 条件不满足 → 汇报哪些 worktree 未完成,退出等待
 │
-├─ 2. 更新 kanban(锁内)
-│   └─ worktree[你].status = "working", attempt += 1
+├─ 2. 更新 kanban
+│   └─ bun run agent-write.ts --uuid <uuid> --worktree <你> --set status=working --set attempt=<current+1>
 │
 ├─ 3. 在主 worktree 创建集成分支
 │   └─ git checkout -b integration/<tag>-attempt-<NN> main
@@ -50,11 +50,25 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
    - NN 用两位零填充,递增(01, 02, 03)
    - `NN = current_attempt`
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `integration-report` 模板
-3. **原子提交**(锁内):
-   - `worktree[你].status = "done"`
-   - `worktree[你].report = <报告相对路径>`
-   - 每个 developer worktree: `integration = "merged"` 或 `"conflict"`
-   - 任务顶层 `status` 可提升为 `"done"`
+3. **原子提交**(按顺序执行):
+   - 自己:
+     ```bash
+     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+       --uuid <uuid> \
+       --worktree <自己> \
+       --set status=done \
+       --set report=~/.kanban/<repo>/<uuid>/integration-<NN>.md
+     ```
+   - 每个 developer worktree `<dev>`:
+     ```bash
+     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+       --uuid <uuid> --worktree <dev> --set integration=merged
+     ```
+   - 任务收尾:
+     ```bash
+     bun run ~/.claude/skills/kanban/scripts/update-task.ts \
+       <uuid> set:status=done
+     ```
 4. **汇报**:
    ```
    ✅ 集成报告已提交 (attempt 01)
@@ -69,17 +83,27 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 
 ### 语义冲突无法自行判断
 
-在 integration report 中**显式声明**冲突,锁内设:
-- 对应 `worktree[对方].integration = "conflict"`
-- 对应 `worktree[对方].blocked_on = ["<冲突文件与说明>"]`
+在 integration report 中**显式声明**冲突,执行:
+- ```bash
+  bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+    --uuid <uuid> \
+    --worktree <对方> \
+    --set integration=conflict \
+    --set blocked_on=<冲突文件与说明>
+  ```
 
 汇报时明确指出哪些 worktree 存在冲突,需要 developer 介入修复。
 
 ### 回归测试失败
 
-在 integration report 里**显式声明**失败原因和指向的具体 worktree,不自行修复。设置:
-- `worktree[你].status = "blocked"`
-- `worktree[你].error = "回归测试失败: <一句话>"`
+在 integration report 里**显式声明**失败原因和指向的具体 worktree,不自行修复。执行:
+- ```bash
+  bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+    --uuid <uuid> \
+    --worktree <你> \
+    --set status=blocked \
+    --set error=回归测试失败: <一句话>
+  ```
 
 等待 developer 修复后重新触发集成。
 
