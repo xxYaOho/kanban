@@ -40,13 +40,13 @@
 
 1. 用户通过参数提供 uuid → 直接使用(支持短前缀 ≥6)
 2. 未提供 uuid → 按"uuid 解析公共流程"中的活跃任务筛选与候选逻辑执行
-3. 已注册保护:若 `task.worktree[worktreeName]` 在某任务中已存在 → 走冲突处理(见步骤 4)
+3. 已注册保护:若已有条目的 `cwd === worktreeName`（或 key === worktreeName 作为兼容旧数据回退）→ 走冲突处理(见步骤 4)
 
 > 不在本文档内重复 uuid 解析细节,以 SKILL.md 的"uuid 解析公共流程"为准。
 
-### 2.5 席位匹配（仅当 `task.worktree[worktreeName]` 不存在时）
+### 2.5 席位匹配（仅当无条目匹配当前 cwd 时）
 
-当前 worktree 名尚未在任务中注册时，检查是否有可认领的预分配席位。
+当前 worktree 的 cwd 尚未在任务中注册时，检查是否有可认领的预分配席位。认领后 key 保持预分配名称不变，`cwd` 字段记录当前目录名。
 
 **读取空置席位**：调用 `query.ts --uuid <uuid>`，从输出的 JSON 块中获取 `idleSlots[<role>]`。
 
@@ -134,7 +134,7 @@
 
 ### 4. 冲突处理
 
-**已有条目是同角色**:幂等处理,仅更新 action(若提供了新 context),其他字段不变:
+**已有条目是同角色**(通过 cwd 匹配):幂等处理,更新 action 和 cwd:
 ```
 ⚠️  worktree dev-serve 已注册为 developer,本次刷新了 action。
 ```
@@ -153,6 +153,7 @@
 | ------------ | ------------------------- |
 | `role`       | 来自参数                  |
 | `action`     | `<context>` 或追问结果    |
+| `cwd`        | `basename(pwd)`           |
 | `status`     | `"idle"`                  |
 | `attempt`    | `0`                       |
 | `report`     | `null`                    |
@@ -249,3 +250,7 @@ bun run ~/.claude/skills/kanban/scripts/role.ts \
 `--claim-from` 仅当用户在步骤 2.5 选择了认领预分配席位时才传入。
 
 Agent 层负责交互采集(role 校验、action 追问、任务定位),脚本只接收已决策的参数并执行写入。
+
+> **stableKey**：`role.ts` stdout 包含 `stableKey` 字段。认领席位后 Agent 应使用 stableKey
+> 作为后续 `agent-write.ts --worktree <stableKey>` 的参数，而非 `basename(pwd)`。
+> Path B 自动触发时，SKILL.md 已指示记录 stable key，同理。

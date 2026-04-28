@@ -46,14 +46,16 @@ function padRight(s: string, w: number): string {
 }
 
 function renderWorktreeTable(task: Task, hlName?: string): string {
-  const rows: string[][] = [["Worktree", "Role", "Status", "Attempt", "Latest Report"]];
+  const rows: string[][] = [["Worktree", "Role", "Status", "Attempt", "CWD", "Latest Report"]];
   for (const [name, w] of Object.entries(task.worktree ?? {})) {
     const wt = w as Partial<Worktree>;
+    const cwdDisplay = wt.cwd == null ? "-" : wt.cwd === name ? "(same)" : wt.cwd;
     rows.push([
       name + (name === hlName ? " ←" : ""),
       wt.role ?? "-",
       wt.status ?? "-",
       wt.attempt != null ? String(wt.attempt) : "-",
+      cwdDisplay,
       wt.report ?? "-",
     ]);
   }
@@ -152,7 +154,10 @@ async function main() {
   const task = kanban[uuid!];
   const short = uuid!.slice(0, 8);
   const cwd = basename(process.cwd());
-  const hlName = task.worktree[cwd] ? cwd : undefined;
+  const hlKey = Object.keys(task.worktree).find(
+    (k) => (task.worktree[k] as Partial<Worktree>).cwd === cwd,
+  ) ?? (task.worktree[cwd] ? cwd : undefined);
+  const hlName = hlKey;
 
   const icon = BANNER_ICON[task.status] ?? "📋";
   const tag = task.status === "draft" ? "DRAFT" : task.status;

@@ -47,11 +47,14 @@ description: |
 
 ### 路径 B:自动触发(cwd 在某 worktree 内)
 
-1. `worktreeName = basename(pwd)`
-2. 遍历 kanban,找 task 满足 `task.worktree[worktreeName]` 存在 且 `task.status ∈ { planned, in_progress }`
+1. `cwdName = basename(pwd)`
+2. 遍历 kanban,找 task 满足 `task.worktree` 中存在 key 使得 `.cwd === cwdName`,且 `task.status ∈ { planned, in_progress }`
+   > 兼容旧数据:若无 cwd 匹配的条目,回退为 `task.worktree[cwdName]` 存在
 3. 多匹配 → 取 `updated` 最新;仍多 → AskUserQuestion 列候选
-4. `role = task.worktree[worktreeName].role`
-5. 加载 `references/role-<role>.md` 进入工作模式
+4. 记录 stable key:`key = <匹配到的 worktree key>`
+5. `role = task.worktree[key].role`
+6. 加载 `references/role-<role>.md` 进入工作模式
+7. 后续 `agent-write.ts` 调用使用 `--worktree <key>`(stable key)
 
 **草案例外**:自动触发时若 `task.status == "draft"`,**不进入工作模式**,提示:
 
@@ -119,6 +122,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 | ----------------------------------------------------------- | ---------- | --------------------------------------- |
 | `status`, `description`, `plan`, `draft`, `repo`, `created` | 人工领域   | `/kanban --new` / `--update`            |
 | `worktree.<name>.role`, `worktree.<name>.action`            | 人工领域   | `/kanban --new` / `--update` / `--role` |
+| `worktree.<name>.cwd`                                       | 系统       | `scripts/role.ts` 认领/注册时自动写入    |
 | `worktree.<name>.status/report/review/test/integration/attempt/error/…` | Agent 领域 | `scripts/agent-write.ts`                |
 | `updated`                                                   | 系统       | 每次写锁内自动刷新                      |
 

@@ -28,6 +28,7 @@ export type WorktreeStatus =
 export interface Worktree {
   role: WorktreeRole;
   action: string;
+  cwd: string | null;
   status: WorktreeStatus;
   attempt: number;
   report: string | null;

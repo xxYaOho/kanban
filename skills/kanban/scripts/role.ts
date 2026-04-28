@@ -7,9 +7,9 @@
  *   --role <role>              developer | reviewer | test | integrator
  *   --action <action>          worktree 职责描述(非空)
  *   --uuid <uuid>              目标任务 UUID(完整或短前缀,Agent 层已解析)
- *   --claim-from <presetName>  可选:认领预分配席位,将其 rename 为当前 worktree
+ *   --claim-from <presetName>  可选:认领预分配席位,key 不变,写入 cwd 记录物理目录
  *
- * stdout: JSON { ok, worktree, role, action, taskUuid, taskShort, autoStarted, autoStartReason?, claimedFrom? }
+ * stdout: JSON { ok, worktree, stableKey, role, action, taskUuid, taskShort, autoStarted, autoStartReason?, claimedFrom? }
  * 冲突/错误: exit 1 + stderr
  *
  * developer 自动领取:新注册且 task.status ∈ {planned,in_progress} 且 blocked_on 为空时,
@@ -61,15 +61,17 @@ function parseArgs(argv: string[]): Args {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  // 防御性校验：claim-from 不能等于 worktree
+  // 防御性校验：claim-from 不能等于 worktree（名称相同时无需认领，走 Path B 幂等即可）
   if (args.claimFrom && args.claimFrom === args.worktree) {
-    throw new Error("--claim-from 不能等于 --worktree（名称相同时无需认领）");
+    throw new Error("--claim-from 不能等于 --worktree（名称相同时无需认领，走 Path B 幂等即可）");
   }
 
   let resultUuid = args.uuid;
   let autoStarted = false;
   let autoStartReason: string | null = null;
   let claimedFrom: string | null = null;
+  // existingKey 在锁内赋值，锁外 stdout 需用，故在此声明
+  let existingKey: string | undefined;
 
   await withKanbanLock(async (kanban: Kanban) => {
     // 解析 uuid
@@ -99,10 +101,14 @@ async function main() {
     // 三路合一：claim / 幂等 / 新建
     // ══════════════════════════════════════════════
     let target: Partial<Worktree>;
-    const existing = task.worktree[args.worktree];
+    // 优先按 cwd 匹配，其次按 key 匹配（向后兼容无 cwd 的旧数据）
+    existingKey = Object.keys(task.worktree).find(
+      (k) => task.worktree[k].cwd === args.worktree,
+    ) ?? (task.worktree[args.worktree] ? args.worktree : undefined);
+    const existing = existingKey ? task.worktree[existingKey] : undefined;
 
     if (args.claimFrom) {
-      // ── 路径 A：认领预分配席位 ──
+      // ── 路径 A：原地认领预设席位（key 不变，cwd 记录物理目录）──
       const preset = task.worktree[args.claimFrom];
       if (!preset) {
         throw new Error(
@@ -119,23 +125,22 @@ async function main() {
           `席位 ${args.claimFrom} 的角色是 ${preset.role}，与请求的 ${args.role} 不匹配`,
         );
       }
+      // 若已有其他 key 的 cwd === args.worktree，拒绝（防止一个目录双注册）
       if (existing) {
         throw new Error(
-          `当前 worktree ${args.worktree} 已在任务中注册，无法同时认领席位`,
+          `当前 worktree ${args.worktree} 已在任务中注册（key=${existingKey}），无法同时认领席位`,
         );
       }
-      // 原子 rename：继承预分配字段，统一标记 attempt=1
-      target = { ...preset };
-      target.attempt = 1;
-      delete task.worktree[args.claimFrom];
-      task.worktree[args.worktree] = target;
+      preset.cwd = args.worktree;
+      preset.attempt = 1;
+      target = preset;
       claimedFrom = args.claimFrom;
     } else if (existing) {
       // ── 路径 B：已有条目，冲突检查 ──
       if (existing.role !== args.role) {
         throw new Error(
-          `ROLE_CONFLICT：worktree ${args.worktree} 已注册为 ${existing.role}，` +
-            `跨角色切换请走: /kanban --update ${uuid.slice(0, 8)} worktree.${args.worktree}.role=${args.role}`,
+          `ROLE_CONFLICT：worktree ${args.worktree} 已注册为 ${existing.role}（key=${existingKey}），` +
+            `跨角色切换请走: /kanban --update ${uuid.slice(0, 8)} worktree.${existingKey}.role=${args.role}`,
         );
       }
       target = existing;
@@ -143,6 +148,7 @@ async function main() {
       // ── 路径 C：全新注册 ──
       target = {
         role: args.role,
+        cwd: args.worktree,
         status: "idle" as WorktreeStatus,
         attempt: 0,
         report: null,
@@ -155,12 +161,15 @@ async function main() {
       task.worktree[args.worktree] = target;
     }
 
-    // ── 统一赋值 action ──
+    // ── 统一赋值 action / cwd ──
     target.action = args.action;
+    // cwd 幂等覆盖：Path A/C 各自已设，Path B 无预设故需此赋值
+    target.cwd = args.worktree;
 
-    // ── Auto-start（developer 专属，逻辑不变）──
+    // ── Auto-start（developer 专属）──
     if (args.role === "developer") {
-      const wt = task.worktree[args.worktree]!;
+      // target 已在三路分支中指向正确的 worktree 条目，不依赖 args.worktree
+      const wt = target;
       if (wt.status === "idle") {
         if (task.status === "draft") {
           autoStartReason = "任务尚在 draft，需先提升到 planned";
@@ -187,6 +196,7 @@ async function main() {
       {
         ok: true,
         worktree: args.worktree,
+        stableKey: args.claimFrom ?? existingKey ?? args.worktree,
         role: args.role,
         action: args.action,
         taskUuid: resultUuid,

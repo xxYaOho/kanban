@@ -71,6 +71,7 @@ function normalizeWorktrees(
     out[name] = {
       role,
       action,
+      cwd: null,
       status: "idle" as WorktreeStatus,
       attempt: 0,
       report: null,

@@ -106,6 +106,7 @@ function validatePromotable(task: Task): string[] {
 }
 
 function ensureWorktreeDefaults(w: Partial<Worktree>) {
+  if (w.cwd === undefined) w.cwd = null;
   if (w.status === undefined) w.status = "idle";
   if (w.attempt === undefined) w.attempt = 0;
   if (w.report === undefined) w.report = null;
