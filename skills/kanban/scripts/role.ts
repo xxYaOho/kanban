@@ -7,7 +7,7 @@
  *   --role <role>              developer | reviewer | test | integrator
  *   --action <action>          worktree 职责描述(非空)
  *   --uuid <uuid>              目标任务 UUID(完整或短前缀,Agent 层已解析)
- *   --claim-from <presetName>  可选:认领预分配槽位,将其 rename 为当前 worktree
+ *   --claim-from <presetName>  可选:认领预分配席位,将其 rename 为当前 worktree
  *
  * stdout: JSON { ok, worktree, role, action, taskUuid, taskShort, autoStarted, autoStartReason?, claimedFrom? }
  * 冲突/错误: exit 1 + stderr
@@ -102,26 +102,26 @@ async function main() {
     const existing = task.worktree[args.worktree];
 
     if (args.claimFrom) {
-      // ── 路径 A：认领预分配槽位 ──
+      // ── 路径 A：认领预分配席位 ──
       const preset = task.worktree[args.claimFrom];
       if (!preset) {
         throw new Error(
-          `预分配槽位 ${args.claimFrom} 不存在或已被其他 worktree 认领`,
+          `预分配席位 ${args.claimFrom} 不存在或已被其他 worktree 认领`,
         );
       }
       if (preset.status !== "idle" || (preset.attempt ?? 0) > 0) {
         throw new Error(
-          `槽位 ${args.claimFrom} 已被认领 (status=${preset.status}, attempt=${preset.attempt})`,
+          `席位 ${args.claimFrom} 已被认领 (status=${preset.status}, attempt=${preset.attempt})`,
         );
       }
       if (preset.role !== args.role) {
         throw new Error(
-          `槽位 ${args.claimFrom} 的角色是 ${preset.role}，与请求的 ${args.role} 不匹配`,
+          `席位 ${args.claimFrom} 的角色是 ${preset.role}，与请求的 ${args.role} 不匹配`,
         );
       }
       if (existing) {
         throw new Error(
-          `当前 worktree ${args.worktree} 已在任务中注册，无法同时认领槽位`,
+          `当前 worktree ${args.worktree} 已在任务中注册，无法同时认领席位`,
         );
       }
       // 原子 rename：继承预分配字段，统一标记 attempt=1
