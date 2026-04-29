@@ -1,11 +1,13 @@
 ---
 name: kanban
-description: |
-  Kanban 多 Agent 协作协议。管理 `~/.kanban/kanban.json` 中的任务状态机(draft/planned/in_progress/done/archived/aborted),在 git worktree 场景下自动识别当前 agent 身份(developer/reviewer/test/integrator)并加载对应角色手册。
-  触发场景:
-    ① 用户显式输入 `/kanban --init/--new/--update/--uuid/--role` 等子命令;
-    ② cwd 是已登记在 kanban 里的 worktree 目录,需要推进任务(开发、评审、测试、交付报告);
-    ③ 用户在自然对话中提到"看板/协作/review/任务状态/任务认领/注册/加入/接手/worktree"等关键词且当前 cwd 在某 worktree 内。即便用户只说"写个 report""走下一步""review 一下改动""我来接这个"等不直接提 kanban 的措辞,只要当前 worktree 已在 kanban 中登记,也要触发本 skill 以正确写入 `report-*.md` / `review-*.md` / `test-*.md` 并原子更新 worktree 字段。
+description: >
+  Multi-agent kanban protocol tracking tasks via `~/.kanban/kanban.json` across git worktrees.
+  Detects agent role (developer/reviewer/test/integrator) from worktree registration and loads
+  the matching role handbook. Trigger when: (1) user runs `/kanban` subcommands,
+  (2) cwd is a registered worktree needing task progression,
+  (3) user mentions task, review, or worktree workflows — even casual phrases like
+  "write a report" or "review this" should activate this skill to ensure atomic
+  state updates and correct report generation.
 ---
 
 # Kanban Skill
@@ -48,8 +50,9 @@ description: |
 ### 路径 B:自动触发(cwd 在某 worktree 内)
 
 1. `cwdName = basename(pwd)`
-2. 遍历 kanban,找 task 满足 `task.worktree` 中存在 key 使得 `.cwd === cwdName`,且 `task.status ∈ { planned, in_progress }`
-   > 兼容旧数据:若无 cwd 匹配的条目,回退为 `task.worktree[cwdName]` 存在
+2. 遍历 kanban,找 task 满足 `task.status ∈ { planned, in_progress }` 且其 `worktree` 中存在匹配条目:
+   - 优先匹配 `worktree` 条目的 `.cwd` 字段等于 `cwdName`(精确匹配物理目录)
+   - 若无 `.cwd` 匹配,回退为 `task.worktree[cwdName]` 存在(兼容旧数据,旧数据无 `.cwd` 字段)
 3. 多匹配 → 取 `updated` 最新;仍多 → AskUserQuestion 列候选
 4. 记录 stable key:`key = <匹配到的 worktree key>`
 5. `role = task.worktree[key].role`
@@ -168,15 +171,17 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 ~/.claude/skills/kanban/     # 本 skill(无 commands/ 目录)
 ```
 
-## ⛔ 禁止清单
+## 关键约束
 
-- ❌ 绕过 `withKanbanLock` 直接写 `kanban.json`
-- ❌ 在 `status=draft` 任务上自动进入工作模式
-- ❌ 通过 `/kanban --update` 改 Agent 领域字段(`worktree.<name>.status/review/test/report/integration/attempt/error/blocked_on`)
-- ❌ 把 draft 任务的 `plan` 文件当权威来源直接开工
-- ❌ 手动增删 `~/.kanban/.locks/` 下的文件
+- 所有写操作必须经过 `withKanbanLock`——绕过锁会导致并发竞态，两个 Agent 同时写入时其中一个的更新会静默丢失
+- `status=draft` 的任务不应自动开工——plan 未定稿且 worktree 可能未注册，应先由用户提升到 `planned`
+- `/kanban --update` 只改人工领域字段（`status/description/plan/draft/repo` 及 worktree 的 `role/action`）；Agent 领域字段（`worktree.<name>.status/review/test/report/integration/attempt/error/blocked_on`）必须通过 `scripts/agent-write.ts` 修改，混用会导致人工操作覆盖 Agent 状态
+- draft 任务的 `plan` 文件是讨论阶段的占位文档，非权威来源——开始实现前确认 `status` 已提升到 `planned`
+- `~/.kanban/.locks/` 下的文件由 `proper-lockfile` 自动管理——手动增删会导致锁库误判 stale lock，引发写冲突
 
 ## 子命令索引
+
+用户输入对应 `/kanban` 子命令时加载匹配的 reference:
 
 | 命令                                | Reference                  |
 | ----------------------------------- | -------------------------- |
@@ -188,12 +193,14 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 
 ## 角色手册索引
 
-| Role         | Reference                      |
-| ------------ | ------------------------------ |
-| `developer`  | `references/role-developer.md` |
-| `reviewer`   | `references/role-reviewer.md`  |
-| `test`       | `references/role-test.md`      |
-| `integrator` | `references/role-integrator.md` |
+路径 B 自动触发时，根据 worktree 条目的 `role` 字段加载对应手册:
+
+| Role         | Reference                      | 加载条件                                       |
+| ------------ | ------------------------------ | ---------------------------------------------- |
+| `developer`  | `references/role-developer.md` | `worktree.<key>.role === "developer"`          |
+| `reviewer`   | `references/role-reviewer.md`  | `worktree.<key>.role === "reviewer"`           |
+| `test`       | `references/role-test.md`      | `worktree.<key>.role === "test"`               |
+| `integrator` | `references/role-integrator.md` | `worktree.<key>.role === "integrator"`          |
 
 报告 frontmatter 规范:`references/frontmatter-templates.md`,生成报告前读一次。
 

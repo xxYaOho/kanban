@@ -4,7 +4,10 @@
 import { homedir } from "os";
 import { join } from "path";
 
-export const KANBAN_ROOT = join(homedir(), ".kanban");
+const KANBAN_DIR = ".kanban";
+const KANBAN_PREFIX = "~/.kanban";
+
+export const KANBAN_ROOT = join(homedir(), KANBAN_DIR);
 export const KANBAN_FILE = join(KANBAN_ROOT, "kanban.json");
 export const LOCKS_DIR = join(KANBAN_ROOT, ".locks");
 export const LOCK_FILE = join(LOCKS_DIR, "kanban.json.lock");
@@ -53,7 +56,7 @@ export function testPath(
  */
 export function toKanbanRel(abs: string): string {
   if (abs.startsWith(KANBAN_ROOT)) {
-    return "~/.kanban" + abs.slice(KANBAN_ROOT.length);
+    return KANBAN_PREFIX + abs.slice(KANBAN_ROOT.length);
   }
   return abs;
 }
@@ -62,8 +65,8 @@ export function toKanbanRel(abs: string): string {
  * 反过来:把 ~/.kanban/... 展开成绝对路径。
  */
 export function fromKanbanRel(p: string): string {
-  if (p.startsWith("~/.kanban")) {
-    return KANBAN_ROOT + p.slice("~/.kanban".length);
+  if (p.startsWith(KANBAN_PREFIX)) {
+    return KANBAN_ROOT + p.slice(KANBAN_PREFIX.length);
   }
   if (p.startsWith("~/")) {
     return join(homedir(), p.slice(2));
