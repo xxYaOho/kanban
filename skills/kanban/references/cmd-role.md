@@ -48,7 +48,7 @@
 
 当前 worktree 的 cwd 尚未在任务中注册时，检查是否有可认领的预分配席位。认领后 key 保持预分配名称不变，`cwd` 字段记录当前目录名。
 
-**读取空置席位**：调用 `query.ts --uuid <uuid>`，从输出的 JSON 块中获取 `idleSlots[<role>]`。
+**读取空置席位**：调用 `query.ts --uuid <uuid>`，从输出的 JSON 块中获取 `idleStations[<role>]`。
 
 **扫描条件**（`query.ts` 内部实现）：遍历 `task.worktree`，筛选满足以下全部条件的条目：
 - `role` === 用户传入的 `<role>`
@@ -62,20 +62,20 @@
 **有 1 个空置席位** → AskUserQuestion：
 
 ```
-检测到预分配席位 "<slotName>" (<role> — <action>)，是否认领？
+检测到预分配席位 "<stationName>" (<role> — <action>)，是否认领？
 (a) 认领该席位
 (b) 不认领，创建独立的新角色
 ```
 
-- 用户选 (a) → 脚本传 `--claim-from <slotName>`，继续步骤 3 采集 action（预分配的 action 作为默认建议）
+- 用户选 (a) → 脚本传 `--claim-from <stationName>`，继续步骤 3 采集 action（预分配的 action 作为默认建议）
 - 用户选 (b) → 不传 `--claim-from`，继续步骤 3
 
 **有 2 个空置席位** → AskUserQuestion：
 
 ```
 当前任务有以下空置的 <role> 席位：
-(a) <slotName1> — <action1>
-(b) <slotName2> — <action2>
+(a) <stationName1> — <action1>
+(b) <stationName2> — <action2>
 (c) 不认领，创建独立的新角色
 ```
 
@@ -83,13 +83,13 @@
 
 ```
 当前任务有 <N> 个空置的 <role> 席位，展示优先级前 3：
-(a) <slotName1> — <action1>
-(b) <slotName2> — <action2>
-(c) <slotName3> — <action3>
+(a) <stationName1> — <action1>
+(b) <stationName2> — <action2>
+(c) <stationName3> — <action3>
 (d) 不认领，创建独立的新角色
 ```
 
-席位按 `task.worktree` 中的顺序排列（`--new` 创建时先定义的优先级更高），Agent 层按 `idleSlots` 数组原序读取即可。
+席位按 `task.worktree` 中的顺序排列（`--new` 创建时先定义的优先级更高），Agent 层按 `idleStations` 数组原序读取即可。
 
 - 用户选某个席位 → 脚本传对应的 `--claim-from`
 - 用户选"不认领" → 不传 `--claim-from`，正常创建

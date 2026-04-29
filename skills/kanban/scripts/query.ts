@@ -4,7 +4,7 @@
  *
  * 站在当前 worktree(若在)的视角,展示任务全貌与下一步建议。纯读,不加锁。
  *
- * stdout 末尾输出 JSON 块（以 \0JSON\n 为分隔,包含 idleSlots 等结构化数据）,
+ * stdout 末尾输出 JSON 块（以 \0JSON\n 为分隔,包含 idleStations 等结构化数据）,
  * 供 Agent 层解析使用。
  */
 import { basename } from "path";
@@ -109,16 +109,16 @@ function listReports(repo: string, uuid: string): string[] {
     .map((x) => `  ${humanAgo(new Date(x.mtime).toISOString()).padEnd(8)}  ${x.name}`);
 }
 
-function buildIdleSlots(task: Task): Record<string, Array<{ slotName: string; action: string }>> {
-  const idleSlots: Record<string, Array<{ slotName: string; action: string }>> = {};
+function buildIdleStations(task: Task): Record<string, Array<{ stationName: string; action: string }>> {
+  const idleStations: Record<string, Array<{ stationName: string; action: string }>> = {};
   for (const [wtName, wt] of Object.entries(task.worktree ?? {})) {
     const w = wt as Partial<Worktree>;
     if (w.status === "idle" && (w.attempt ?? 0) === 0 && w.role) {
-      if (!idleSlots[w.role]) idleSlots[w.role] = [];
-      idleSlots[w.role].push({ slotName: wtName, action: w.action ?? "" });
+      if (!idleStations[w.role]) idleStations[w.role] = [];
+      idleStations[w.role].push({ stationName: wtName, action: w.action ?? "" });
     }
   }
-  return idleSlots;
+  return idleStations;
 }
 
 async function main() {
@@ -197,8 +197,8 @@ async function main() {
   }
 
   // ── 结构化数据输出（供 Agent 层解析）──
-  const idleSlots = buildIdleSlots(task);
-  const jsonBlock = JSON.stringify({ idleSlots });
+  const idleStations = buildIdleStations(task);
+  const jsonBlock = JSON.stringify({ idleStations });
   out += `\n\0JSON\n${jsonBlock}\n`;
 
   console.log(out);

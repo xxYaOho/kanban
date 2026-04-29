@@ -25,7 +25,7 @@ description: |
 | `--update <uuid> [<path>=<value>…]` | 交互式或快捷更新              | `references/cmd-update.md` |
 | `--uuid <uuid>`                     | 查询任务视图                  | `references/cmd-query.md`  |
 | `--role <role> [<context>]`         | 当前 worktree 自注册          | `references/cmd-role.md`   |
-| 空 / `--help`                       | 输出本分派表                  | 内置                       |
+| 空 / `--help`                       | 运行 `help.ts`，print stdout | 内置                       |
 
 **通用规则**:
 
