@@ -1,15 +1,18 @@
 # /kanban --thread
 
-站在当前 worktree(若在)的视角,展示任务全貌与下一步建议。纯读,不加锁。
+站在当前 worktree(若在)的视角,展示任务全貌与下一步建议。纯查询部分不加锁。
 
 ## 命令形态
 
 ```bash
-/kanban --thread <id>         # 支持短前缀 (≥6)
-/kanban --thread               # 未提供时走任务定位公共流程
+/kanban --thread <id>                  # 支持短前缀 (≥6)
+/kanban --thread <id> <context>        # 附带自然语言指令
+/kanban --thread                        # 未提供时走任务定位公共流程
 ```
 
 **任务定位**：若未提供 thread id，遵循 SKILL.md 中的"任务定位公共流程"——筛选活跃任务，唯一则静默选中，多个则 AskUserQuestion 让用户选。
+
+**context 处理**：若有 `<context>`，先展示任务视图，再根据语义自行判断意图（如更新状态、调整分配等）。涉及写操作时，加载 `references/cmd-update.md` 获取正确的脚本调用格式后执行。不确定意图时向用户确认。
 
 ## 展示布局
 

@@ -19,8 +19,8 @@ description: >
 | ----------------------------------- | ----------------------------- | -------------------------- |
 | `--init`                            | 初始化 `~/.kanban/`(检测 Bun) | `references/cmd-init.md`   |
 | `--new [<context>]`                 | 从上下文创建任务              | `references/cmd-new.md`    |
-| `--update <uuid> [<path>=<value>…]` | 交互式或快捷更新              | `references/cmd-update.md` |
-| `--thread <id>`                     | 查询任务视图                  | `references/cmd-query.md`  |
+| `--update <id> [<path>=<value>…]` | 交互式或快捷更新              | `references/cmd-update.md` |
+| `--thread <id> [<context>]`          | 查询任务视图；context 为可选的自然语言指令，Agent 自行判断意图 | `references/cmd-query.md`  |
 | `--role <role> [<context>]`         | 当前 worktree 自注册          | `references/cmd-role.md`   |
 | 空 / `--help`                       | 运行 `help.ts`，回复简短提示，引导用户展开工具输出查看详情 | 内置                       |
 
@@ -187,8 +187,8 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 | ----------------------------------- | -------------------------- |
 | `/kanban --init`                    | `references/cmd-init.md`   |
 | `/kanban --new [<context>]`         | `references/cmd-new.md`    |
-| `/kanban --update <uuid> [ops]`     | `references/cmd-update.md` |
-| `/kanban --thread <id>`             | `references/cmd-query.md`  |
+| `/kanban --update <id> [ops]`       | `references/cmd-update.md` |
+| `/kanban --thread <id> [<context>]`  | `references/cmd-query.md`  |
 | `/kanban --role <role> [<context>]` | `references/cmd-role.md`   |
 
 ## 角色手册索引
