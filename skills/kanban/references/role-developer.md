@@ -18,7 +18,10 @@ enter(cwd = <worktree>)
 │      → bun run agent-write.ts --uuid <uuid> --worktree <你> --set status=working --set attempt=<current+1>
 │
 ├─ status == "working"
-│   └─ 继续未完成的工作;若退出前未收尾,保持 "working"
+│   └─ 按 plan 节顺序自主推进,完成一节直接进入下一节
+│      只在遇到阻塞时暂停(决策需要、依赖缺失、环境问题)
+│      不逐节追问"是否继续",不重复展示 plan
+│      用户说"ok/可以/继续/好"时,直接开工不重新汇报状态
 │
 ├─ status == "review_rejected"
 │   └─ 读最新 review-<你>-<NN>.md,依据修改

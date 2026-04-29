@@ -180,6 +180,8 @@
    - task.status == "draft" → 保持 idle,报告"任务尚在 draft,需先提升到 planned"
    - blocked_on 有值 → 保持 idle,报告阻塞项
 3. Agent 根据脚本输出(`autoStarted` / `autoStartReason`)生成报告
+4. 展示 plan 节清单后，**直接开始第一项工作**。禁止追问"从哪里开始"、"是否开始"、"是否同意"等确认性问题
+5. 若用户在此阶段给出肯定回复（如"ok"、"可以"、"开始"、"好"、"继续"），视为推进信号，直接开工，不重复展示计划
 
 #### reviewer
 

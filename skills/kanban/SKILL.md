@@ -22,7 +22,7 @@ description: >
 | `--update <uuid> [<path>=<value>…]` | 交互式或快捷更新              | `references/cmd-update.md` |
 | `--uuid <uuid>`                     | 查询任务视图                  | `references/cmd-query.md`  |
 | `--role <role> [<context>]`         | 当前 worktree 自注册          | `references/cmd-role.md`   |
-| 空 / `--help`                       | 运行 `help.ts`，print stdout | 内置                       |
+| 空 / `--help`                       | 运行 `help.ts`，**原样 relay stdout**（禁止重新排版为表格） | 内置                       |
 
 **通用规则**:
 
@@ -205,3 +205,4 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 - 变更 diff(新增/修改/删除字段)
 - 下一步推荐动作
 - 不复述整个任务对象或 plan 内容
+- **脚本 stdout 直接 relay**：`help.ts`、`query.ts`、`status.ts` 等读命令的标准输出已格式化好，原样展示给用户即可，禁止重新解析排版为 HTML/Markdown 表格
