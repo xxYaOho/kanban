@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * /kanban --uuid <uuid>
+ * /kanban --thread <id>
  *
  * 站在当前 worktree(若在)的视角,展示任务全貌与下一步建议。纯读,不加锁。
  *

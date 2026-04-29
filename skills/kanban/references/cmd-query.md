@@ -1,15 +1,15 @@
-# /kanban --uuid
+# /kanban --thread
 
 站在当前 worktree(若在)的视角,展示任务全貌与下一步建议。纯读,不加锁。
 
 ## 命令形态
 
 ```bash
-/kanban --uuid <uuid>         # uuid 支持短前缀 (≥6)
-/kanban --uuid                # 未提供 uuid 时走 uuid 解析公共流程
+/kanban --thread <id>         # 支持短前缀 (≥6)
+/kanban --thread               # 未提供时走任务定位公共流程
 ```
 
-**uuid 定位**：若未提供 uuid，遵循 SKILL.md 中的"uuid 解析公共流程"——筛选活跃任务，唯一则静默选中，多个则 AskUserQuestion 让用户选。
+**任务定位**：若未提供 thread id，遵循 SKILL.md 中的"任务定位公共流程"——筛选活跃任务，唯一则静默选中，多个则 AskUserQuestion 让用户选。
 
 ## 展示布局
 
@@ -54,7 +54,7 @@ test          test       idle           -        -
 ```
 📍 当前身份: dev-serve (developer)
    你刚交了 report-dev-serve-01.md,status=waiting_review
-   下一步:等 reviewer 处理。可以切到其他 worktree,或 /kanban --uuid <uuid> 重查。
+   下一步:等 reviewer 处理。可以切到其他 worktree,或 /kanban --thread <id> 重查。
 ```
 
 下一步建议的决策表:

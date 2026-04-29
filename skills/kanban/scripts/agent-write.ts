@@ -6,9 +6,9 @@
  * 所有 --set 操作在同一个锁内完成。
  *
  * 用法:
- *   bun run agent-write.ts --uuid <uuid> --worktree <name> --set key=value [...]
+ *   bun run agent-write.ts --thread <uuid> --worktree <name> --set key=value [...]
  *
- * --uuid      任务 UUID，支持短前缀（≥6 字符）
+ * --thread    任务 UUID，支持短前缀（≥6 字符）
  * --worktree  目标 worktree 名（要写入的 worktree，不一定是 Agent 自己的）
  * --set       字段赋值，可多次传入。key 相对于 worktree.<name>.
  *             null 用字符串 "null" 表示。路径支持 ~/ 和 ~/.kanban/ 前缀。
@@ -65,8 +65,9 @@ function parseArgs(argv: string[]): Args {
     const k = argv[i];
     const v = argv[i + 1];
     switch (k) {
+      case "--thread":
       case "--uuid":
-        if (!v) throw new Error("--uuid 缺少值");
+        if (!v) throw new Error(`${k} 缺少值`);
         a.uuid = v;
         i++;
         break;
@@ -88,7 +89,7 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  if (!a.uuid) throw new Error("缺少 --uuid");
+  if (!a.uuid) throw new Error("缺少 --thread");
   if (!a.worktree) throw new Error("缺少 --worktree");
   if (a.ops.length === 0) throw new Error("至少需要一个 --set");
 

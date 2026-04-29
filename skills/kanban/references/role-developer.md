@@ -15,7 +15,7 @@ enter(cwd = <worktree>)
 │
 ├─ status == "idle"
 │   └─ 读 plan.md + action 开工
-│      → bun run agent-write.ts --uuid <uuid> --worktree <你> --set status=working --set attempt=<current+1>
+│      → bun run agent-write.ts --thread <uuid> --worktree <你> --set status=working --set attempt=<current+1>
 │
 ├─ status == "working"
 │   └─ 按 plan 节顺序自主推进,完成一节直接进入下一节
@@ -25,7 +25,7 @@ enter(cwd = <worktree>)
 │
 ├─ status == "review_rejected"
 │   └─ 读最新 review-<你>-<NN>.md,依据修改
-│      → bun run agent-write.ts --uuid <uuid> --worktree <你> --set status=working
+│      → bun run agent-write.ts --thread <uuid> --worktree <你> --set status=working
 │      → 修完后同 "working" 的提交流程
 │
 ├─ status == "waiting_review"
@@ -49,7 +49,7 @@ enter(cwd = <worktree>)
 3. **原子提交**(两条命令,顺序执行):
    - ```bash
      bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-       --uuid <uuid> \
+       --thread <uuid> \
        --worktree <你> \
        --set status=waiting_review \
        --set report=~/.kanban/<repo>/<uuid>/report-<你>-<NN>.md \
@@ -75,7 +75,7 @@ enter(cwd = <worktree>)
 写 `*-error.md` 说明问题,执行:
 - ```bash
   bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-    --uuid <uuid> \
+    --thread <uuid> \
     --worktree <你> \
     --set status=blocked \
     --set blocked_on=<文件名或理由> \

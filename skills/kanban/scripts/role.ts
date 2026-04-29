@@ -6,7 +6,7 @@
  *   --worktree <name>          当前 worktree 名(由 Agent 层传入 basename(pwd))
  *   --role <role>              developer | reviewer | test | integrator
  *   --action <action>          worktree 职责描述(非空)
- *   --uuid <uuid>              目标任务 UUID(完整或短前缀,Agent 层已解析)
+ *   --thread <uuid>            目标任务 UUID(完整或短前缀,Agent 层已解析)
  *   --claim-from <presetName>  可选:认领预分配席位,key 不变,写入 cwd 记录物理目录
  *
  * stdout: JSON { ok, worktree, stableKey, role, action, taskUuid, taskShort, autoStarted, autoStartReason?, claimedFrom? }
@@ -47,6 +47,7 @@ function parseArgs(argv: string[]): Args {
       case "--worktree": a.worktree = v; i++; break;
       case "--role": a.role = v as WorktreeRole; i++; break;
       case "--action": a.action = v; i++; break;
+      case "--thread":
       case "--uuid": a.uuid = v; i++; break;
       case "--claim-from": a.claimFrom = v; i++; break;
     }
@@ -54,7 +55,7 @@ function parseArgs(argv: string[]): Args {
   if (!a.worktree) throw new Error("缺参: --worktree");
   if (!a.role || !_validRoleSet.has(a.role)) throw new Error(`非法 role: ${a.role}`);
   if (!a.action || !a.action.trim()) throw new Error("--action 不能为空");
-  if (!a.uuid) throw new Error("缺参: --uuid");
+  if (!a.uuid) throw new Error("缺参: --thread");
   return a as Args;
 }
 

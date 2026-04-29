@@ -43,17 +43,17 @@ enter(cwd = <test-worktree>)
      - 对每个 developer worktree `<dev>`:
        ```bash
        bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-         --uuid <uuid> --worktree <dev> --set status=done
+         --thread <uuid> --worktree <dev> --set status=done
        ```
      - 对每个 reviewer worktree `<rev>`:
        ```bash
        bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-         --uuid <uuid> --worktree <rev> --set status=done
+         --thread <uuid> --worktree <rev> --set status=done
        ```
      - 自己:
        ```bash
        bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-         --uuid <uuid> --worktree <自己> --set status=done \
+         --thread <uuid> --worktree <自己> --set status=done \
          --set test=~/.kanban/<repo>/<uuid>/test-<NN>.md
        ```
      - 任务收尾:
@@ -65,13 +65,13 @@ enter(cwd = <test-worktree>)
      - 自己:
        ```bash
        bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-         --uuid <uuid> --worktree <自己> --set status=idle \
+         --thread <uuid> --worktree <自己> --set status=idle \
          --set test=~/.kanban/<repo>/<uuid>/test-<NN>.md
        ```
      - 对每个需重做的 developer worktree `<dev>`:
        ```bash
        bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-         --uuid <uuid> --worktree <dev> --set status=review_rejected
+         --thread <uuid> --worktree <dev> --set status=review_rejected
        ```
      - 任务顶层保持 `in_progress`(不需调 update-task.ts)
 4. **汇报**:

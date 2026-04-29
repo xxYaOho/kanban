@@ -92,7 +92,7 @@ async function main() {
   out += `Commands\n`;
   out += `${SEP}\n`;
   out += `  ${padRight("--new", 28)}${padRight("Create Thread", 22)} 创建任务\n`;
-  out += `  ${padRight("--uuid <id>", 28)}${padRight("Thread Details", 22)} 查看任务详情\n`;
+  out += `  ${padRight("--thread <id>", 28)}${padRight("Thread Details", 22)} 查看任务详情\n`;
   out += `  ${padRight("--update <id> [ops]", 28)}${padRight("Agent Update Kanban", 22)} 由 Agent 更新看板\n`;
   out += `  ${padRight("--role <role>", 28)}${padRight("Get Role & Station", 22)} 获取角色与工作站\n`;
   out += `${SEP}\n`;

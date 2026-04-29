@@ -20,7 +20,7 @@ description: >
 | `--init`                            | 初始化 `~/.kanban/`(检测 Bun) | `references/cmd-init.md`   |
 | `--new [<context>]`                 | 从上下文创建任务              | `references/cmd-new.md`    |
 | `--update <uuid> [<path>=<value>…]` | 交互式或快捷更新              | `references/cmd-update.md` |
-| `--uuid <uuid>`                     | 查询任务视图                  | `references/cmd-query.md`  |
+| `--thread <id>`                     | 查询任务视图                  | `references/cmd-query.md`  |
 | `--role <role> [<context>]`         | 当前 worktree 自注册          | `references/cmd-role.md`   |
 | 空 / `--help`                       | 运行 `help.ts`，**将 stdout 逐字写入回复，不总结、不省略、不重新排版** | 内置                       |
 
@@ -31,9 +31,9 @@ description: >
 - 写操作必须走 `scripts/kanban-lock.ts` 的 `withKanbanLock()`
 - 汇报简明:一行状态 + diff + 下一步建议,不复述全任务
 
-### uuid 解析公共流程
+### 任务定位公共流程
 
-`--role`、`--update`、`--uuid` 三个命令共用以下流程定位目标任务:
+`--role`、`--update`、`--thread` 三个命令共用以下流程定位目标任务:
 
 1. 用户提供 uuid → 直接使用(支持短前缀 ≥6)
 2. 未提供 uuid → 读 kanban.json,筛选活跃任务(`status ∈ {in_progress, planned, draft}`)
@@ -111,7 +111,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 - `draft` 字段:记录讨论阶段产出的需求文稿路径,**不一定存在于磁盘**,仅作追溯用
 - `status=draft`:任务占位状态,plan 未定稿、worktree 可能为空
 - 两者可以同时存在,也可以各自独立出现
-- `draft` 字段在 `--uuid` 视图里低调展示(Plan 行下方),不抢眼
+- `draft` 字段在 `--thread` 视图里低调展示(Plan 行下方),不抢眼
 - 最终验收时若发现实现偏离预期,可以翻出 `draft` 文件对照原始意图
 
 ### 字段归属
@@ -183,7 +183,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 | `/kanban --init`                    | `references/cmd-init.md`   |
 | `/kanban --new [<context>]`         | `references/cmd-new.md`    |
 | `/kanban --update <uuid> [ops]`     | `references/cmd-update.md` |
-| `/kanban --uuid <uuid>`             | `references/cmd-query.md`  |
+| `/kanban --thread <id>`             | `references/cmd-query.md`  |
 | `/kanban --role <role> [<context>]` | `references/cmd-role.md`   |
 
 ## 角色手册索引

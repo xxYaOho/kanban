@@ -36,19 +36,19 @@
 
 ### 2. 定位任务
 
-`worktreeName = basename(pwd)`,复用 SKILL.md 中的 **uuid 解析公共流程**:
+`worktreeName = basename(pwd)`,复用 SKILL.md 中的 **任务定位公共流程**:
 
 1. 用户通过参数提供 uuid → 直接使用(支持短前缀 ≥6)
-2. 未提供 uuid → 按"uuid 解析公共流程"中的活跃任务筛选与候选逻辑执行
+2. 未提供 uuid → 按"任务定位公共流程"中的活跃任务筛选与候选逻辑执行
 3. 已注册保护:若已有条目的 `cwd === worktreeName`（或 key === worktreeName 作为兼容旧数据回退）→ 走冲突处理(见步骤 4)
 
-> 不在本文档内重复 uuid 解析细节,以 SKILL.md 的"uuid 解析公共流程"为准。
+> 不在本文档内重复 uuid 解析细节,以 SKILL.md 的"任务定位公共流程"为准。
 
 ### 2.5 席位匹配（仅当无条目匹配当前 cwd 时）
 
 当前 worktree 的 cwd 尚未在任务中注册时，检查是否有可认领的预分配席位。认领后 key 保持预分配名称不变，`cwd` 字段记录当前目录名。
 
-**读取空置席位**：调用 `query.ts --uuid <uuid>`，从输出的 JSON 块中获取 `idleStations[<role>]`。
+**读取空置席位**：调用 `query.ts <uuid>`，从输出的 JSON 块中获取 `idleStations[<role>]`。
 
 **扫描条件**（`query.ts` 内部实现）：遍历 `task.worktree`，筛选满足以下全部条件的条目：
 - `role` === 用户传入的 `<role>`
@@ -245,7 +245,7 @@ bun run ~/.claude/skills/kanban/scripts/role.ts \
   --worktree <name> \
   --role <role> \
   --action <action> \
-  --uuid <uuid> \
+  --thread <uuid> \
   [--claim-from <presetName>]
 ```
 

@@ -41,7 +41,7 @@ enter(cwd = <reviewer-worktree>)
    - approve:
      ```bash
      bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-       --uuid <uuid> \
+       --thread <uuid> \
        --worktree <name> \
        --set status=review_approved \
        --set review=~/.kanban/<repo>/<uuid>/review-<name>-<NN>.md
@@ -49,7 +49,7 @@ enter(cwd = <reviewer-worktree>)
    - reject:
      ```bash
      bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-       --uuid <uuid> \
+       --thread <uuid> \
        --worktree <name> \
        --set status=review_rejected \
        --set review=~/.kanban/<repo>/<uuid>/review-<name>-<NN>.md
@@ -73,7 +73,7 @@ enter(cwd = <reviewer-worktree>)
   - 对每个 developer worktree:
     ```bash
     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
-      --uuid <uuid> --worktree <name> --set status=done
+      --thread <uuid> --worktree <name> --set status=done
     ```
   - 任务收尾:
     ```bash
