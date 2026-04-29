@@ -22,7 +22,12 @@ description: >
 | `--update <uuid> [<path>=<value>…]` | 交互式或快捷更新              | `references/cmd-update.md` |
 | `--thread <id>`                     | 查询任务视图                  | `references/cmd-query.md`  |
 | `--role <role> [<context>]`         | 当前 worktree 自注册          | `references/cmd-role.md`   |
-| 空 / `--help`                       | 运行 `help.ts`，**将 stdout 逐字写入回复，不总结、不省略、不重新排版** | 内置                       |
+| 空 / `--help`                       | 运行 `help.ts`，回复简短提示，引导用户展开工具输出查看详情 | 内置                       |
+
+**空命令回复模板**（根据对话语言选择，不要逐字输出 help.ts stdout）:
+
+- 中文: 哦呼，不知道做什么好的话，看看上方的 help 输出吧 :)
+- English: Oh hey, not sure what to do? Check the help output above :)
 
 **通用规则**:
 
@@ -205,4 +210,4 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 - 变更 diff(新增/修改/删除字段)
 - 下一步推荐动作
 - 不复述整个任务对象或 plan 内容
-- **脚本 stdout 逐字输出**：`help.ts`、`query.ts`、`status.ts` 等读命令的标准输出已格式化好。将其 stdout 逐字写入回复，不总结、不省略、不重新排版为表格
+- **脚本 stdout 逐字输出**：`query.ts`、`status.ts` 等读命令的标准输出已格式化好。将其 stdout 逐字写入回复，不总结、不省略、不重新排版为表格。`help.ts` 除外——空命令时走回复模板
