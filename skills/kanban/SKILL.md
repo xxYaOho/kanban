@@ -1,13 +1,8 @@
 ---
 name: kanban
 description: >
-  Multi-agent kanban protocol tracking tasks via `~/.kanban/kanban.json` across git worktrees.
-  Detects agent role (developer/reviewer/test/integrator) from worktree registration and loads
-  the matching role handbook. Trigger when: (1) user runs `/kanban` subcommands,
-  (2) cwd is a registered worktree needing task progression,
-  (3) user mentions task, review, or worktree workflows — even casual phrases like
-  "write a report" or "review this" should activate this skill to ensure atomic
-  state updates and correct report generation.
+  Multi-agent kanban via git worktrees. Each worktree registers a role, writes progress
+  reports, and atomically updates shared task state in `~/.kanban/kanban.json`.
 ---
 
 # Kanban Skill

@@ -11,7 +11,7 @@
  */
 import { $ } from "bun";
 import { existsSync } from "fs";
-import { mkdir, writeFile, rm, rename, readdir, unlink, readFile as readFileAsync } from "fs/promises";
+import { mkdir, writeFile, rm, rename, readdir, unlink, symlink, lstat, readFile as readFileAsync } from "fs/promises";
 import { KANBAN_ROOT, KANBAN_FILE, LOCKS_DIR, ARCHIVE_ROOT } from "./paths";
 import { nowIso } from "./kanban-io";
 import { join, basename } from "path";
@@ -63,14 +63,48 @@ function parseArgs(argv: string[]) {
   };
 }
 
-function checkDependency(): void {
-  const nmPath = join(import.meta.dir, "..", "node_modules", "proper-lockfile");
-  if (!existsSync(nmPath)) {
-    console.error("❌ 未检测到 proper-lockfile 依赖。");
-    console.error("请在 skills/kanban/ 目录下安装依赖后再运行:");
-    console.error("  cd ~/.claude/skills/kanban && bun install");
-    process.exit(1);
+async function ensureNodeModules(): Promise<void> {
+  const nmDir = join(KANBAN_ROOT, "node_modules");
+  const properLockfile = join(nmDir, "proper-lockfile");
+
+  // 依赖未安装 → 写入 package.json 并安装
+  if (!existsSync(properLockfile)) {
+    const pkgJson = join(KANBAN_ROOT, "package.json");
+    await writeFile(
+      pkgJson,
+      JSON.stringify(
+        {
+          name: "kanban-runtime",
+          private: true,
+          dependencies: { "proper-lockfile": "^4.1.2" },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+
+    // 优先 npm，回退 bun
+    const whichNpm = await $`which npm`.quiet().nothrow();
+    const installer = whichNpm.exitCode === 0 ? "npm" : "bun";
+    const result = await $`cd ${KANBAN_ROOT} && ${installer} install`.quiet().nothrow();
+    if (result.exitCode !== 0) {
+      console.error(`❌ 依赖安装失败 (${installer} install): ${result.stderr.toString()}`);
+      process.exit(1);
+    }
+    console.log("📦 依赖已安装: proper-lockfile");
   }
+
+  // 确保 skills/kanban/node_modules → ~/.kanban/node_modules 为 symlink
+  const skillNm = join(import.meta.dir, "..", "node_modules");
+  if (existsSync(skillNm)) {
+    const stat = await lstat(skillNm);
+    if (stat.isSymbolicLink()) return; // 已就位
+    // 真实目录不自动删除，留给用户处理
+    console.warn(`⚠️  ${skillNm} 是真实目录(非 symlink)，跳过链接创建`);
+    return;
+  }
+  await symlink(nmDir, skillNm, "dir");
 }
 
 function detectMigrationNeeds(): string[] {
@@ -80,15 +114,6 @@ function detectMigrationNeeds(): string[] {
   }
   if (existsSync(join(KANBAN_ROOT, "wave"))) {
     needs.push("wave/<repo>/ → <repo>/");
-  }
-  for (const file of ["package.json", "bun.lock", "bun.lockb"]) {
-    if (existsSync(join(KANBAN_ROOT, file))) {
-      needs.push(`清理 ${file}`);
-      break;
-    }
-  }
-  if (existsSync(join(KANBAN_ROOT, "node_modules"))) {
-    needs.push("清理 node_modules/");
   }
   return needs;
 }
@@ -146,21 +171,7 @@ async function runMigration(): Promise<void> {
     }
   }
 
-  // 4. Remove npm artifacts from data layer
-  for (const file of ["package.json", "bun.lock", "bun.lockb"]) {
-    const p = join(KANBAN_ROOT, file);
-    if (existsSync(p)) {
-      await unlink(p);
-      console.log(`  清理:删除 ${file}`);
-    }
-  }
-  const nmDir = join(KANBAN_ROOT, "node_modules");
-  if (existsSync(nmDir)) {
-    await rm(nmDir, { recursive: true, force: true });
-    console.log("  清理:删除 node_modules/");
-  }
-
-  // 5. 补写 CLAUDE.md（已存在则跳过）
+  // 4. 补写 CLAUDE.md（已存在则跳过）
   const claudeMdPath = join(KANBAN_ROOT, "CLAUDE.md");
   if (!existsSync(claudeMdPath)) {
     await writeFile(claudeMdPath, CLAUDE_MD, "utf-8");
@@ -176,9 +187,6 @@ async function main() {
     process.exit(1);
   }
 
-  // 依赖检查
-  checkDependency();
-
   const args = parseArgs(process.argv.slice(2));
 
   if (existsSync(KANBAN_ROOT)) {
@@ -190,6 +198,7 @@ async function main() {
         process.exit(0);
       }
       await runMigration();
+      await ensureNodeModules();
       console.log("✅ 迁移完成");
       process.exit(0);
     }
@@ -234,6 +243,9 @@ async function main() {
   // 建目录(.locks 和 archive;repo 目录按需由 new-task.ts 创建)
   await mkdir(LOCKS_DIR, { recursive: true });
   await mkdir(ARCHIVE_ROOT, { recursive: true });
+
+  // 安装运行时依赖(~/.kanban/node_modules/),并建立 symlink
+  await ensureNodeModules();
 
   // 写模板文件
   await writeFile(KANBAN_FILE, "{}\n", "utf-8");

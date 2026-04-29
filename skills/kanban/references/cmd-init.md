@@ -10,25 +10,7 @@
       curl -fsSL https://bun.sh/install | bash
    然后重新运行 /kanban --init
    ```
-2. **依赖就位**:检测 `skills/kanban/node_modules/` 是否存在。
-   - 已就位 → 跳过安装
-   - 未就位 → 依次尝试:
-     ```
-     which bun → bun install (在 skills/kanban/ 下)
-     which npm → npm install  (在 skills/kanban/ 下)
-     两者都没有 → 报错中止:
-       ❌ 未检测到 bun 或 npm，无法安装 skill 依赖。
-       请先安装其中一个：
-         Bun:  curl -fsSL https://bun.sh/install | bash
-         npm:  随 Node.js 附带，https://nodejs.org
-       安装后重新运行 /kanban --init
-     ```
-   - npm 安装成功但 Bun 不存在时追加警告:
-     ```
-     ⚠️  依赖已通过 npm 安装，但脚本运行需要 Bun。
-     请安装 Bun 后再使用 /kanban 其他命令：
-       curl -fsSL https://bun.sh/install | bash
-     ```
+2. **依赖安装**:`~/.kanban/node_modules/proper-lockfile` 不存在时，脚本自动写入 `~/.kanban/package.json` 并执行 `npm install`（回退 `bun install`）。无需手动操作。
 
 ## 目录已存在时的处理
 
@@ -81,7 +63,6 @@ bun run ~/.claude/skills/kanban/scripts/init.ts [--reset|--skip|--migrate]
 ✅ 数据层迁移完成
    kanban.jsonc → kanban.json
    wave/<repo>/ → <repo>/
-   已清理: package.json, bun.lock, node_modules/
    任务路径已更新
 ```
 
