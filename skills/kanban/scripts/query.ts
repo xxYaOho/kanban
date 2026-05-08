@@ -2,15 +2,14 @@
 /**
  * /kanban --thread <id>
  *
- * 站在当前 worktree(若在)的视角,展示任务全貌与下一步建议。纯读,不加锁。
- *
- * stdout 末尾输出 JSON 块（以 \0JSON\n 为分隔,包含 idleStations 等结构化数据）,
- * 供 Agent 层解析使用。
+ * 纯读,不加锁。展示任务全貌与下一步建议。
  */
 import { basename } from "path";
 import { readdirSync, statSync, existsSync } from "fs";
-import { readKanban, resolveUuid, type Task, type Worktree } from "./kanban-io";
+import { readKanban, resolveUuid, type Task } from "./kanban-io";
 import { fromKanbanRel, waveDir } from "./paths";
+
+const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
 
 const BANNER_ICON: Record<string, string> = {
   draft: "📋",
@@ -45,80 +44,129 @@ function padRight(s: string, w: number): string {
   return s.length >= w ? s : s + " ".repeat(w - s.length);
 }
 
-function renderWorktreeTable(task: Task, hlName?: string): string {
-  const rows: string[][] = [["Worktree", "Role", "Status", "Attempt", "CWD", "Latest Report"]];
-  for (const [name, w] of Object.entries(task.worktree ?? {})) {
-    const wt = w as Partial<Worktree>;
-    const cwdDisplay = wt.cwd == null ? "-" : wt.cwd === name ? "(same)" : wt.cwd;
-    rows.push([
-      name + (name === hlName ? " ←" : ""),
-      wt.role ?? "-",
-      wt.status ?? "-",
-      wt.attempt != null ? String(wt.attempt) : "-",
-      cwdDisplay,
-      wt.report ?? "-",
-    ]);
+function renderEntryTable(task: Task, hlKey?: string | null): string {
+  const headers = ["Entry", "Role", "Status", "Attempt", "CWD", "Reports"];
+  const rows: string[][] = [headers];
+
+  for (const rk of ROLE_KEYS) {
+    const entries = task[rk] ?? {};
+    for (const [name, e] of Object.entries(entries)) {
+      const entry = e as any;
+      const cwdDisplay = entry.cwd == null ? "-" : entry.cwd === name ? "(same)" : entry.cwd;
+
+      let reportsSummary = "-";
+      if (rk === "developer" && Array.isArray(entry.reports)) {
+        reportsSummary = entry.reports.length > 0 ? String(entry.reports.length) : "-";
+      } else if (entry.report) {
+        reportsSummary = "1";
+      }
+
+      rows.push([
+        name + (name === hlKey ? " ←" : ""),
+        rk,
+        entry.status ?? "-",
+        entry.attempt != null ? String(entry.attempt) : "-",
+        cwdDisplay,
+        reportsSummary,
+      ]);
+    }
   }
-  const widths = rows[0].map((_, col) =>
-    rows.reduce((m, r) => Math.max(m, r[col].length), 0),
+
+  if (rows.length === 1) return "(无条目)\n";
+
+  const widths = headers.map((_, col) =>
+    rows.reduce((m, r) => Math.max(m, (r[col] ?? "").length), 0),
   );
   return rows
     .map((r, idx) => {
-      const line = r.map((c, i) => padRight(c, widths[i])).join("  ");
+      const line = r.map((c, i) => padRight(c ?? "", widths[i])).join("  ");
       if (idx === 0) return line + "\n" + widths.map((w) => "-".repeat(w)).join("  ");
       return line;
     })
     .join("\n");
 }
 
-function nextHint(task: Task, hlName?: string): string {
-  if (!hlName || !task.worktree[hlName]) return "";
-  const w = task.worktree[hlName] as Partial<Worktree>;
-  const map: Record<string, Record<string, string>> = {
-    developer: {
-      idle: "读 plan,依 action 开工,完成后写 report 并转 waiting_review",
-      working: "继续未完成的工作",
-      waiting_review: "等 reviewer。可以切到其他 worktree",
-      review_rejected: "读最新 review,依据修改,attempt+1",
-      review_approved: "等 test 接力",
-      blocked: "读 blocked_on,先解阻塞",
-      done: "无事可做",
-    },
-    reviewer: {
-      idle: "检查所有 developer waiting_review,拉 diff 做 review",
-      working: "继续 review",
-      done: "本任务评审已结束",
-    },
-    test: {
-      idle: "若所有 dev 都 review_approved,拉分支跑测",
-      working: "继续测试",
-      done: "测试通过,任务收尾",
-    },
+function nextHint(task: Task, hlKey?: string | null, hlRole?: string | null): string {
+  if (!hlKey || !hlRole) return "";
+  const entries = (task as any)[hlRole] ?? {};
+  const e = entries[hlKey];
+  if (!e) return "";
+  const status = e.status ?? "";
+
+  const devHints: Record<string, string> = {
+    idle: "读 plan,依 brief 开工,完成后写 report 并转 waiting_review",
+    working: "继续未完成的工作",
+    waiting_review: "等 reviewer。可以切到其他 worktree",
+    under_review: "审查中，等待 reviewer 结论",
+    review_approved: "等 test 接力",
+    review_rejected: "读最新 review,依据修改,attempt+1",
+    blocked: "读 blocked_on,先解阻塞",
+    done: "无事可做",
   };
-  const tip = (w.role && w.status && map[w.role]?.[w.status]) ?? "(无默认建议,人工决定)";
-  return `📍 当前身份: ${hlName} (${w.role})\n   当前 status: ${w.status}\n   建议:${tip}`;
+  const reviewerHints: Record<string, string> = {
+    idle: "检查 developer waiting_review,开始审查",
+    working: "继续审查",
+    done: "审查完成",
+  };
+  const testHints: Record<string, string> = {
+    idle: "若所有 dev 都 review_approved,合并测试",
+    working: "继续测试",
+    waiting: "等待 dev 修复后回测",
+    done: "测试通过",
+  };
+  const integratorHints: Record<string, string> = {
+    idle: "若测试通过,合并分支集成",
+    working: "继续集成",
+    done: "集成完成",
+  };
+
+  let tip = "(无默认建议,人工决定)";
+  if (hlRole === "developer") tip = devHints[status] ?? tip;
+  else if (hlRole === "reviewer") tip = reviewerHints[status] ?? tip;
+  else if (hlRole === "test") tip = testHints[status] ?? tip;
+  else if (hlRole === "integrator") tip = integratorHints[status] ?? tip;
+
+  return `📍 当前身份: ${hlKey} (${hlRole})\n   当前 status: ${status}\n   建议:${tip}`;
 }
 
 function listReports(repo: string, uuid: string): string[] {
   const dir = waveDir(repo, uuid);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((f) => /^(report|review|test)-.*\.md$/.test(f))
+    .filter((f) => /^(report|review|test|integration)-.*\.md$/.test(f))
     .map((f) => ({ name: f, mtime: statSync(`${dir}/${f}`).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime)
     .map((x) => `  ${humanAgo(new Date(x.mtime).toISOString()).padEnd(8)}  ${x.name}`);
 }
 
-function buildIdleStations(task: Task): Record<string, Array<{ stationName: string; action: string }>> {
-  const idleStations: Record<string, Array<{ stationName: string; action: string }>> = {};
-  for (const [wtName, wt] of Object.entries(task.worktree ?? {})) {
-    const w = wt as Partial<Worktree>;
-    if (w.status === "idle" && (w.attempt ?? 0) === 0 && w.role) {
-      if (!idleStations[w.role]) idleStations[w.role] = [];
-      idleStations[w.role].push({ stationName: wtName, action: w.action ?? "" });
+function buildIdleStations(task: Task): Record<string, Array<{ stationName: string; brief: string }>> {
+  const idleStations: Record<string, Array<{ stationName: string; brief: string }>> = {};
+  for (const rk of ROLE_KEYS) {
+    const entries = task[rk] ?? {};
+    for (const [name, e] of Object.entries(entries)) {
+      const entry = e as any;
+      if (entry.status === "idle" && (entry.attempt ?? 0) === 0) {
+        if (!idleStations[rk]) idleStations[rk] = [];
+        idleStations[rk].push({ stationName: name, brief: entry.brief ?? "" });
+      }
     }
   }
   return idleStations;
+}
+
+function findCurrentEntry(task: Task, cwd: string): { key: string; role: string } | null {
+  for (const rk of ROLE_KEYS) {
+    const entries = task[rk] ?? {};
+    for (const [name, e] of Object.entries(entries)) {
+      const entry = e as any;
+      if (entry.cwd === cwd) return { key: name, role: rk };
+    }
+  }
+  // Fallback: match by key name
+  for (const rk of ROLE_KEYS) {
+    if (task[rk]?.[cwd]) return { key: cwd, role: rk };
+  }
+  return null;
 }
 
 async function main() {
@@ -154,17 +202,16 @@ async function main() {
   const task = kanban[uuid!];
   const short = uuid!.slice(0, 8);
   const cwd = basename(process.cwd());
-  const hlKey = Object.keys(task.worktree).find(
-    (k) => (task.worktree[k] as Partial<Worktree>).cwd === cwd,
-  ) ?? (task.worktree[cwd] ? cwd : undefined);
-  const hlName = hlKey;
+  const current = findCurrentEntry(task, cwd);
+  const hlKey = current?.key ?? null;
+  const hlRole = current?.role ?? null;
 
   const icon = BANNER_ICON[task.status] ?? "📋";
   const tag = task.status === "draft" ? "DRAFT" : task.status;
   let out = `${icon} Task ${short}  [${tag}]  (${task.description})\n`;
 
   if (task.status === "draft") {
-    out += `⚠️  此任务仍在草案阶段,worktree 可能未分配。\n`;
+    out += `⚠️  此任务仍在草案阶段,条目可能未分配。\n`;
     out += `    完善后运行:/kanban --update ${short} status=planned\n`;
   }
 
@@ -172,7 +219,6 @@ async function main() {
   out += `Repo:    ${task.repo}\n`;
   out += `Plan:    ${task.plan}\n`;
 
-  // draft 字段:低调展示,仅在非 null 时出现
   if (task.draft) {
     const draftExists = existsSync(fromKanbanRel(task.draft));
     out += `Draft:   ${task.draft}${draftExists ? "" : "  (文件不存在,仅作记录)"}\n`;
@@ -181,10 +227,10 @@ async function main() {
   out += `Created: ${fmtTime(task.created)}\n`;
   out += `Updated: ${fmtTime(task.updated)}\n`;
 
-  out += "\nWorktrees:\n";
-  out += renderWorktreeTable(task, hlName) + "\n";
+  out += "\nEntries:\n";
+  out += renderEntryTable(task, hlKey) + "\n";
 
-  const hint = nextHint(task, hlName);
+  const hint = nextHint(task, hlKey, hlRole);
   if (hint) out += "\n" + hint + "\n";
 
   const reports = listReports(task.repo, uuid!);
@@ -196,7 +242,7 @@ async function main() {
     out += `\n⚠️  警告:任务目录不存在(${waveDir(task.repo, uuid!)}),kanban.json 与文件系统不一致\n`;
   }
 
-  // ── 结构化数据输出（供 Agent 层解析）──
+  // 结构化数据输出
   const idleStations = buildIdleStations(task);
   const jsonBlock = JSON.stringify({ idleStations });
   out += `\n\0JSON\n${jsonBlock}\n`;

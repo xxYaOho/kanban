@@ -12,7 +12,7 @@
 ```
 
 - `<role>` 必填位置参数:`developer` / `reviewer` / `test` / `integrator`
-- `<context>` 可选:对应 `worktree.<name>.action`,即这个 worktree 要做什么
+- `<context>` 可选:对应 `<role>.<name>.brief`,即这个条目要做什么
 
 ## 执行流程
 
@@ -67,7 +67,7 @@
 (b) 不认领，创建独立的新角色
 ```
 
-- 用户选 (a) → 脚本传 `--claim-from <stationName>`，继续步骤 3 采集 action（预分配的 action 作为默认建议）
+- 用户选 (a) → 脚本传 `--claim-from <stationName>`，继续步骤 3 采集 brief（预分配的 action 作为默认建议）
 - 用户选 (b) → 不传 `--claim-from`，继续步骤 3
 
 **有 2 个空置席位** → AskUserQuestion：
@@ -104,7 +104,7 @@
 - 仍有同角色空置席位 → 重新展示候选（同样最多展示前 3）："刚才选择的席位已被其他 Agent 认领，以下是当前可用的席位：..."
 - 无空置席位 → 回退到正常创建流程："所有预分配席位已被认领，将为当前 worktree 创建新的角色条目。"
 
-### 3. 采集 action
+### 3. 采集 brief
 
 **有 `<context>`**:直接作为 action 写入,不追问。
 
@@ -244,7 +244,7 @@ Plan 对应节: ## <匹配节标题>    (若 plan.md 存在)
 bun run ~/.claude/skills/kanban/scripts/role.ts \
   --worktree <name> \
   --role <role> \
-  --action <action> \
+  --brief <brief> \
   --thread <uuid> \
   [--claim-from <presetName>]
 ```

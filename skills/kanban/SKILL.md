@@ -50,14 +50,14 @@ description: >
 ### 路径 B:自动触发(cwd 在某 worktree 内)
 
 1. `cwdName = basename(pwd)`
-2. 遍历 kanban,找 task 满足 `task.status ∈ { planned, in_progress }` 且其 `worktree` 中存在匹配条目:
-   - 优先匹配 `worktree` 条目的 `.cwd` 字段等于 `cwdName`(精确匹配物理目录)
-   - 若无 `.cwd` 匹配,回退为 `task.worktree[cwdName]` 存在(兼容旧数据,旧数据无 `.cwd` 字段)
+2. 遍历 kanban,找 task 满足 `task.status ∈ { planned, in_progress }`:
+   - 遍历 `developer`/`test`/`integrator` 的条目，匹配 `.cwd` 字段等于 `cwdName`
+   - 若无 cwd 匹配，回退为 key 名等于 `cwdName`（兼容旧数据）
+   - `reviewer` 不参与 cwd 匹配（reviewer 不绑定 worktree）
 3. 多匹配 → 取 `updated` 最新;仍多 → AskUserQuestion 列候选
-4. 记录 stable key:`key = <匹配到的 worktree key>`
-5. `role = task.worktree[key].role`
-6. 加载 `references/role-<role>.md` 进入工作模式
-7. 后续 `agent-write.ts` 调用使用 `--worktree <key>`(stable key)
+4. 记录:`key = <匹配到的条目 key>`, `role = <条目所在 role key>`
+5. 加载 `references/role-<role>.md` 进入工作模式
+6. 后续 `agent-write.ts` 调用使用 `--worktree <key>`
 
 **草案例外**:自动触发时若 `task.status == "draft"`,**不进入工作模式**,提示:
 
@@ -91,21 +91,56 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
     "plan": "~/.kanban/wave/019d9b9f.../plan.md",
     "created": "2026-04-18T14:00:00+08:00",
     "updated": "2026-04-18T14:32:00+08:00",
-    "worktree": {
+    "developer": {
       "dev-serve": {
-        "role": "developer", // developer | reviewer | test | integrator
-        "action": "重构命令解析器",
-        "status": "working", // idle | working | waiting_review | review_approved | review_rejected | done | blocked
+        "status": "working", // idle | working | waiting_review | under_review | review_approved | review_rejected | done | blocked
+        "brief": "重构命令解析器",
         "attempt": 1,
-        "report": "~/.kanban/wave/019d9b9f.../report-dev-serve-01.md",
-        "review": null,
-        "test": null,
-        "integration": null, // null | "pending" | "merged" | "conflict"
-        "error": null,
         "blocked_on": null,
-      },
+        "worktree": "dev-serve", // git worktree basename 或 null
+        "cwd": "dev-serve",      // 物理目录名 或 null
+        "reports": ["report-dev-serve-01.md"],  // 开发报告(文件名,在任务目录下)
+        "review": "review-dev-serve-01.md",     // 最新审查结果(文件名)
+        "error": null
+      }
     },
-  },
+    "reviewer": {
+      "review": {
+        "status": "done", // idle | working | done
+        "brief": "审查 dev-serve 产出",
+        "attempt": 1,
+        "pass": ["dev-serve", "plan"],  // 已通过的审查目标
+        "report": "review-summary-01.md",  // 审查最终总结报告
+        "error": null
+      }
+    },
+    "test": {
+      "full-test": {
+        "status": "idle", // idle | working | waiting | done
+        "brief": "合并全部 dev 做全量测试",
+        "attempt": 0,
+        "worktree": null,  // 可选
+        "cwd": null,
+        "pass": [],
+        "fail": [],
+        "report": "",
+        "error": null
+      }
+    },
+    "integrator": {
+      "merge": {
+        "status": "idle", // idle | working | done
+        "brief": "合并已通过的 dev 分支",
+        "attempt": 0,
+        "worktree": null,
+        "cwd": null,
+        "merged": [],
+        "conflicts": [],
+        "report": "",
+        "error": null
+      }
+    }
+  }
 }
 ```
 
@@ -124,22 +159,32 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 | 字段                                                        | 归属       | 谁可以改                                |
 | ----------------------------------------------------------- | ---------- | --------------------------------------- |
 | `status`, `description`, `plan`, `draft`, `repo`, `created` | 人工领域   | `/kanban --new` / `--update`            |
-| `worktree.<name>.role`, `worktree.<name>.action`            | 人工领域   | `/kanban --new` / `--update` / `--role` |
-| `worktree.<name>.cwd`                                       | 系统       | `scripts/role.ts` 认领/注册时自动写入    |
-| `worktree.<name>.status/report/review/test/integration/attempt/error/…` | Agent 领域 | `scripts/agent-write.ts`                |
+| `<role>.<name>.brief`                                       | 人工领域   | `/kanban --new` / `--update` / `--role` |
+| `<role>.<name>.cwd`, `<role>.<name>.worktree`               | 系统       | `scripts/role.ts` 认领/注册时自动写入    |
+| `<role>.<name>.status / reports / review / pass / fail / report / merged / conflicts / attempt / error / blocked_on` | Agent 领域 | `scripts/agent-write.ts`                |
 | `updated`                                                   | 系统       | 每次写锁内自动刷新                      |
 
 ### 状态机
 
-- `draft`:占位。`plan` 可为占位文件,`worktree` 可为 `{}`。**Agent 不自动开工**
-- `planned`:`plan` 已定稿,`worktree` 非空且字段齐全。可以开工
-- `in_progress`:任意 worktree `status` 进入 `working`
+**任务级**:
+- `draft`:占位。`plan` 可为占位文件,条目可为空。**Agent 不自动开工**
+- `planned`:`plan` 已定稿,至少一个角色有非空条目。可以开工
+- `in_progress`:任意 role 条目的 `status` 进入 `working`
 - `done` / `archived` / `aborted`:终态
+
+**角色级**:
+
+| 角色 | 状态流转 |
+|------|----------|
+| Developer | `idle → working → waiting_review → under_review → review_approved / review_rejected`（可 `blocked`） |
+| Reviewer | `idle → working → done` |
+| Test | `idle → working → waiting`（回测）`→ working → done` |
+| Integrator | `idle → working → done` |
 
 **`draft → planned` 提升校验**(`update-task.ts` 内实现):
 
 - `plan` 文件存在且非空
-- `worktree` 至少一个条目,每条有合法 `role` 和非空 `action`
+- 至少一个角色有非空条目,每条有非空 `brief`
 
 ## 并发安全
 
@@ -174,9 +219,9 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 ## 关键约束
 
 - 所有写操作必须经过 `withKanbanLock`——绕过锁会导致并发竞态，两个 Agent 同时写入时其中一个的更新会静默丢失
-- `status=draft` 的任务不应自动开工——plan 未定稿且 worktree 可能未注册，应先由用户提升到 `planned`
-- `/kanban --update` 只改人工领域字段（`status/description/plan/draft/repo` 及 worktree 的 `role/action`）；Agent 领域字段（`worktree.<name>.status/review/test/report/integration/attempt/error/blocked_on`）必须通过 `scripts/agent-write.ts` 修改，混用会导致人工操作覆盖 Agent 状态
-- draft 任务的 `plan` 文件是讨论阶段的占位文档，非权威来源——开始实现前确认 `status` 已提升到 `planned`
+- `status=draft` 的任务不应自动开工——plan 未定稿且条目可能未注册，应先由用户提升到 `planned`
+- `/kanban --update` 只改人工领域字段（`status/description/plan/draft/repo` 及各 role 条目的 `brief`）；Agent 领域字段（各 role 条目的 `status/reports/review/pass/fail/report/merged/conflicts/attempt/error/blocked_on`）必须通过 `scripts/agent-write.ts` 修改
+- `reviewer` 不绑定 worktree，注册时 `cwd = null`；`developer` 需要在 worktree 中注册
 - `~/.kanban/.locks/` 下的文件由 `proper-lockfile` 自动管理——手动增删会导致锁库误判 stale lock，引发写冲突
 
 ## 子命令索引
@@ -193,14 +238,14 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 
 ## 角色手册索引
 
-路径 B 自动触发时，根据 worktree 条目的 `role` 字段加载对应手册:
+路径 B 自动触发时，根据匹配到的 role key 加载对应手册:
 
-| Role         | Reference                      | 加载条件                                       |
-| ------------ | ------------------------------ | ---------------------------------------------- |
-| `developer`  | `references/role-developer.md` | `worktree.<key>.role === "developer"`          |
-| `reviewer`   | `references/role-reviewer.md`  | `worktree.<key>.role === "reviewer"`           |
-| `test`       | `references/role-test.md`      | `worktree.<key>.role === "test"`               |
-| `integrator` | `references/role-integrator.md` | `worktree.<key>.role === "integrator"`          |
+| Role         | Reference                      | 加载条件                                 |
+| ------------ | ------------------------------ | ---------------------------------------- |
+| `developer`  | `references/role-developer.md` | 条目属于 `task.developer`                |
+| `reviewer`   | `references/role-reviewer.md`  | 条目属于 `task.reviewer`                 |
+| `test`       | `references/role-test.md`      | 条目属于 `task.test`                     |
+| `integrator` | `references/role-integrator.md` | 条目属于 `task.integrator`               |
 
 报告 frontmatter 规范:`references/frontmatter-templates.md`,生成报告前读一次。
 

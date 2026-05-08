@@ -6,40 +6,54 @@
  *   bun run update-task.ts <uuid> <op>...
  *
  * op 语法:
- *   set:<path>=<value>            设置标量字段(或 worktree.<name>.role/action)
- *   add-worktree:<name>:<json>    新增 worktree 条目(json 为对象 {role,action})
- *   del-worktree:<name>           删除 worktree 条目
+ *   set:<path>=<value>            设置标量字段(或 developer.<name>.brief 等)
+ *   add:<role>:<name>:<json>      新增条目(json 为对象 {brief})
+ *   del:<role>:<name>             删除条目
  *
  * stdout: JSON { ok, diff, newStatus }
  */
 import { existsSync, statSync } from "fs";
 import { withKanbanLock } from "./kanban-lock";
-import { resolveUuid, type Kanban, type Task, type TaskStatus, type Worktree, type WorktreeRole, VALID_TASK_STATUSES, VALID_ROLES } from "./kanban-io";
+import {
+  resolveUuid,
+  type Kanban,
+  type Task,
+  type TaskStatus,
+  VALID_TASK_STATUSES,
+} from "./kanban-io";
 import { fromKanbanRel } from "./paths";
+
+const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
+type RoleKey = (typeof ROLE_KEYS)[number];
 
 // 允许的顶层路径
 const EDITABLE_TOP = new Set(["status", "description", "plan", "draft", "repo"]);
-// 允许的 worktree 子路径
-const EDITABLE_WORKTREE_FIELD = new Set(["role", "action"]);
+// 允许的 role 条目子路径
+const EDITABLE_ROLE_FIELD = new Set(["brief"]);
 // Agent 领域:明确拒绝
-const AGENT_WORKTREE_FIELD = new Set([
+const AGENT_ROLE_FIELD = new Set([
   "status",
-  "report",
-  "review",
-  "test",
   "attempt",
   "error",
   "blocked_on",
-  "integration",
+  "reports",
+  "review",
+  "pass",
+  "fail",
+  "report",
+  "merged",
+  "conflicts",
+  "cwd",
+  "worktree",
 ]);
 
 const _validStatusSet = new Set<string>(VALID_TASK_STATUSES);
-const _validRoleSet = new Set<WorktreeRole>(VALID_ROLES);
+const _validRoleSet = new Set<string>(ROLE_KEYS);
 
 type Op =
   | { kind: "set"; path: string; value: string }
-  | { kind: "add-worktree"; name: string; value: { role: WorktreeRole; action: string } }
-  | { kind: "del-worktree"; name: string };
+  | { kind: "add"; role: RoleKey; name: string; brief: string }
+  | { kind: "del"; role: RoleKey; name: string };
 
 function parseOps(argv: string[]): Op[] {
   const ops: Op[] = [];
@@ -49,21 +63,30 @@ function parseOps(argv: string[]): Op[] {
       const eqIdx = body.indexOf("=");
       if (eqIdx < 0) throw new Error(`op 语法错: ${raw}`);
       ops.push({ kind: "set", path: body.slice(0, eqIdx), value: body.slice(eqIdx + 1) });
-    } else if (raw.startsWith("add-worktree:")) {
-      const body = raw.slice("add-worktree:".length);
-      const colonIdx = body.indexOf(":");
-      if (colonIdx < 0) throw new Error(`op 语法错: ${raw}`);
-      const name = body.slice(0, colonIdx);
-      const obj = JSON.parse(body.slice(colonIdx + 1));
-      if (!obj?.role || typeof obj.action !== "string") {
-        throw new Error(`add-worktree 需要 {role, action}: ${raw}`);
+    } else if (raw.startsWith("add:")) {
+      // add:<role>:<name>:<json>
+      const body = raw.slice("add:".length);
+      const parts = body.split(":");
+      if (parts.length < 3) throw new Error(`op 语法错: ${raw}，格式 add:<role>:<name>:<json>`);
+      const role = parts[0];
+      const name = parts[1];
+      const json = parts.slice(2).join(":");
+      if (!_validRoleSet.has(role)) throw new Error(`非法 role: ${role}`);
+      const obj = JSON.parse(json);
+      if (typeof obj.brief !== "string") {
+        throw new Error(`add 需要 {brief}: ${raw}`);
       }
-      if (!_validRoleSet.has(obj.role)) throw new Error(`非法 role: ${obj.role}`);
-      ops.push({ kind: "add-worktree", name, value: obj });
-    } else if (raw.startsWith("del-worktree:")) {
-      const name = raw.slice("del-worktree:".length);
+      ops.push({ kind: "add", role: role as RoleKey, name, brief: obj.brief });
+    } else if (raw.startsWith("del:")) {
+      // del:<role>:<name>
+      const body = raw.slice("del:".length);
+      const parts = body.split(":");
+      if (parts.length < 2) throw new Error(`op 语法错: ${raw}，格式 del:<role>:<name>`);
+      const role = parts[0];
+      const name = parts.slice(1).join(":");
+      if (!_validRoleSet.has(role)) throw new Error(`非法 role: ${role}`);
       if (!name) throw new Error(`op 语法错: ${raw}`);
-      ops.push({ kind: "del-worktree", name });
+      ops.push({ kind: "del", role: role as RoleKey, name });
     } else {
       throw new Error(`未知 op: ${raw}`);
     }
@@ -71,18 +94,19 @@ function parseOps(argv: string[]): Op[] {
   return ops;
 }
 
-function validatePath(path: string): { top?: string; worktree?: { name: string; field: string } } {
+function validatePath(path: string): { top?: string; roleEntry?: { role: RoleKey; name: string; field: string } } {
   if (EDITABLE_TOP.has(path)) return { top: path };
-  const m = path.match(/^worktree\.([^.]+)\.([^.]+)$/);
+  // 匹配 developer.<name>.<field> 等
+  const m = path.match(/^(developer|reviewer|test|integrator)\.([^.]+)\.([^.]+)$/);
   if (m) {
-    const [, name, field] = m;
-    if (AGENT_WORKTREE_FIELD.has(field)) {
+    const [, role, name, field] = m;
+    if (AGENT_ROLE_FIELD.has(field)) {
       throw new Error(
-        `字段 \`worktree.${name}.${field}\` 属于 Agent 自主字段,/kanban --update 不允许修改。`,
+        `字段 \`${role}.${name}.${field}\` 属于 Agent 自主字段,/kanban --update 不允许修改。`,
       );
     }
-    if (!EDITABLE_WORKTREE_FIELD.has(field)) throw new Error(`未知字段: ${path}`);
-    return { worktree: { name, field } };
+    if (!EDITABLE_ROLE_FIELD.has(field)) throw new Error(`未知字段: ${path}`);
+    return { roleEntry: { role: role as RoleKey, name, field } };
   }
   throw new Error(`未知或禁止修改的字段: ${path}`);
 }
@@ -95,26 +119,21 @@ function validatePromotable(task: Task): string[] {
   } else if (statSync(planAbs).size === 0) {
     errs.push(`plan 文件为空: ${task.plan}`);
   }
-  const names = Object.keys(task.worktree ?? {});
-  if (names.length === 0) errs.push("worktree 为空,需至少一个条目");
-  for (const n of names) {
-    const w = task.worktree[n] ?? {};
-    if (!w.role || !_validRoleSet.has(w.role as WorktreeRole)) errs.push(`worktree.${n}.role 非法或缺失`);
-    if (!w.action || !String(w.action).trim()) errs.push(`worktree.${n}.action 未填写`);
+  const allNames = ROLE_KEYS.flatMap((rk) => Object.keys(task[rk] ?? {}));
+  if (allNames.length === 0) errs.push("所有 role 条目为空,需至少一个条目");
+  for (const rk of ROLE_KEYS) {
+    const entries = task[rk] ?? {};
+    for (const [name, entry] of Object.entries(entries)) {
+      if (!entry.brief || !String(entry.brief).trim()) {
+        errs.push(`${rk}.${name}.brief 未填写`);
+      }
+    }
   }
   return errs;
 }
 
-function ensureWorktreeDefaults(w: Partial<Worktree>) {
-  if (w.cwd === undefined) w.cwd = null;
-  if (w.status === undefined) w.status = "idle";
-  if (w.attempt === undefined) w.attempt = 0;
-  if (w.report === undefined) w.report = null;
-  if (w.review === undefined) w.review = null;
-  if (w.test === undefined) w.test = null;
-  if (w.integration === undefined) w.integration = null;
-  if (w.error === undefined) w.error = null;
-  if (w.blocked_on === undefined) w.blocked_on = null;
+function getRoleEntries(task: Task, role: RoleKey): Record<string, any> {
+  return (task as any)[role] ?? {};
 }
 
 async function main() {
@@ -127,7 +146,6 @@ async function main() {
   let newStatus: string | undefined;
 
   await withKanbanLock(async (kanban: Kanban) => {
-    // 解析 uuid
     const matches = kanban[uuidPrefix] ? [uuidPrefix] : resolveUuid(kanban, uuidPrefix);
     if (matches.length === 0) throw new Error(`找不到任务: ${uuidPrefix}`);
     if (matches.length > 1) {
@@ -154,30 +172,26 @@ async function main() {
             else if (pv.top === "plan") task.plan = op.value;
             else task.repo = op.value;
           }
-        } else if (pv.worktree) {
-          const { name, field } = pv.worktree;
-          const wt = task.worktree[name];
-          if (!wt) throw new Error(`worktree.${name} 不存在`);
-          if (field === "role" && !_validRoleSet.has(op.value as WorktreeRole)) {
-            throw new Error(`非法 role: ${op.value}`);
-          }
-          if (field === "role") wt.role = op.value as WorktreeRole;
-          else wt.action = op.value;
+        } else if (pv.roleEntry) {
+          const { role, name, field } = pv.roleEntry;
+          const entries = getRoleEntries(task, role);
+          if (!entries[name]) throw new Error(`${role}.${name} 不存在`);
+          entries[name][field] = op.value;
         }
-      } else if (op.kind === "add-worktree") {
+      } else if (op.kind === "add") {
         if (!structuralAllowed) {
-          throw new Error(`当前 status=${task.status},不允许新增 worktree。仅在 draft/planned 允许。`);
+          throw new Error(`当前 status=${task.status},不允许新增条目。仅在 draft/planned 允许。`);
         }
-        if (task.worktree[op.name]) throw new Error(`worktree.${op.name} 已存在`);
-        const w: Partial<Worktree> = { ...op.value };
-        ensureWorktreeDefaults(w);
-        task.worktree[op.name] = w;
-      } else if (op.kind === "del-worktree") {
+        const entries = getRoleEntries(task, op.role);
+        if (entries[op.name]) throw new Error(`${op.role}.${op.name} 已存在`);
+        entries[op.name] = { status: "idle", brief: op.brief, attempt: 0 };
+      } else if (op.kind === "del") {
         if (!structuralAllowed) {
-          throw new Error(`当前 status=${task.status},不允许删除 worktree。`);
+          throw new Error(`当前 status=${task.status},不允许删除条目。`);
         }
-        if (!task.worktree[op.name]) throw new Error(`worktree.${op.name} 不存在`);
-        delete task.worktree[op.name];
+        const entries = getRoleEntries(task, op.role);
+        if (!entries[op.name]) throw new Error(`${op.role}.${op.name} 不存在`);
+        delete entries[op.name];
       }
     }
 
@@ -198,20 +212,23 @@ async function main() {
     if ((before.draft ?? null) !== (task.draft ?? null)) diff.push(`draft: ${before.draft ?? "null"} → ${task.draft ?? "null"}`);
     if (before.repo !== task.repo) diff.push(`repo: ${before.repo} → ${task.repo}`);
 
-    const bNames = new Set(Object.keys(before.worktree ?? {}));
-    const aNames = new Set(Object.keys(task.worktree ?? {}));
-    for (const n of aNames) {
-      if (!bNames.has(n)) {
-        diff.push(`+ worktree.${n} = ${JSON.stringify({ role: task.worktree[n].role, action: task.worktree[n].action })}`);
-      } else {
-        const bw = before.worktree[n]!;
-        const aw = task.worktree[n];
-        if (bw.role !== aw.role) diff.push(`worktree.${n}.role: ${bw.role} → ${aw.role}`);
-        if (bw.action !== aw.action) diff.push(`worktree.${n}.action: "${bw.action}" → "${aw.action}"`);
+    for (const rk of ROLE_KEYS) {
+      const bEntries = getRoleEntries(before, rk);
+      const aEntries = getRoleEntries(task, rk);
+      const bNames = new Set(Object.keys(bEntries));
+      const aNames = new Set(Object.keys(aEntries));
+      for (const n of aNames) {
+        if (!bNames.has(n)) {
+          diff.push(`+ ${rk}.${n} = { brief: "${aEntries[n].brief}" }`);
+        } else {
+          if (bEntries[n].brief !== aEntries[n].brief) {
+            diff.push(`${rk}.${n}.brief: "${bEntries[n].brief}" → "${aEntries[n].brief}"`);
+          }
+        }
       }
-    }
-    for (const n of bNames) {
-      if (!aNames.has(n)) diff.push(`- worktree.${n}`);
+      for (const n of bNames) {
+        if (!aNames.has(n)) diff.push(`- ${rk}.${n}`);
+      }
     }
   });
 

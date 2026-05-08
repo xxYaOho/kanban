@@ -5,7 +5,67 @@ import { readFile, writeFile, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { KANBAN_FILE } from "./paths";
 
-// ---- 类型 ----
+// ---- 新角色类型 ----
+
+export type DevStatus =
+  | "idle"
+  | "working"
+  | "waiting_review"
+  | "under_review"
+  | "review_approved"
+  | "review_rejected"
+  | "done"
+  | "blocked";
+
+export type ReviewerStatus = "idle" | "working" | "done";
+export type TestStatus = "idle" | "working" | "waiting" | "done";
+export type IntegratorStatus = "idle" | "working" | "done";
+
+export interface DevEntry {
+  status: DevStatus;
+  brief: string;
+  attempt: number;
+  blocked_on: string | null;
+  worktree: string | null;
+  cwd: string | null;
+  reports: string[];
+  review: string | null;
+  error: string | null;
+}
+
+export interface ReviewerEntry {
+  status: ReviewerStatus;
+  brief: string;
+  attempt: number;
+  pass: string[];
+  report: string;
+  error: string | null;
+}
+
+export interface TestEntry {
+  status: TestStatus;
+  brief: string;
+  attempt: number;
+  worktree: string | null;
+  cwd: string | null;
+  pass: string[];
+  fail: string[];
+  report: string;
+  error: string | null;
+}
+
+export interface IntegratorEntry {
+  status: IntegratorStatus;
+  brief: string;
+  attempt: number;
+  worktree: string | null;
+  cwd: string | null;
+  merged: string[];
+  conflicts: string[];
+  report: string;
+  error: string | null;
+}
+
 export type TaskStatus =
   | "draft"
   | "planned"
@@ -14,63 +74,61 @@ export type TaskStatus =
   | "archived"
   | "aborted";
 
-export type WorktreeRole = "developer" | "reviewer" | "test" | "integrator";
-
-export type WorktreeStatus =
-  | "idle"
-  | "working"
-  | "waiting_review"
-  | "review_approved"
-  | "review_rejected"
-  | "done"
-  | "blocked";
-
-export interface Worktree {
-  role: WorktreeRole;
-  action: string;
-  cwd: string | null;
-  status: WorktreeStatus;
-  attempt: number;
-  report: string | null;
-  review: string | null;
-  test: string | null;
-  integration: null | "pending" | "merged" | "conflict";
-  error: string | null;
-  blocked_on: string | null;
-}
-
 export interface Task {
   status: TaskStatus;
   repo: string;
   description: string;
-  /**
-   * 可选。原始需求草稿文件路径。
-   * - 与 status=draft 是两个独立概念
-   * - 文件不一定存在于磁盘(仅作追溯记录)
-   * - 用于 plan 偏离时找回最初意图,或最终验收时对照原始需求
-   */
   draft?: string | null;
   plan: string;
   created: string;
   updated?: string;
-  worktree: Record<string, Partial<Worktree>>;
+  developer: Record<string, DevEntry>;
+  reviewer: Record<string, ReviewerEntry>;
+  test: Record<string, TestEntry>;
+  integrator: Record<string, IntegratorEntry>;
+  /** @deprecated 旧格式 worktree，迁移后删除 */
+  worktree?: Record<string, any>;
 }
 
 export type Kanban = Record<string, Task>;
 
+// ---- 旧类型（仅迁移用） ----
+
+export type WorktreeRole = "developer" | "reviewer" | "test" | "integrator";
+
 // ---- 集中常量 ----
 
-export const VALID_ROLES: readonly WorktreeRole[] = ["developer", "reviewer", "test", "integrator"] as const;
+export const VALID_ROLES: readonly WorktreeRole[] = [
+  "developer",
+  "reviewer",
+  "test",
+  "integrator",
+] as const;
 
 export const VALID_TASK_STATUSES: readonly TaskStatus[] = [
   "draft", "planned", "in_progress", "done", "archived", "aborted",
 ] as const;
 
-export const VALID_WORKTREE_STATUSES: readonly WorktreeStatus[] = [
-  "idle", "working", "waiting_review", "review_approved", "review_rejected", "done", "blocked",
+export const VALID_DEV_STATUSES: readonly DevStatus[] = [
+  "idle", "working", "waiting_review", "under_review",
+  "review_approved", "review_rejected", "done", "blocked",
 ] as const;
 
-export const TERMINAL_STATUSES: readonly TaskStatus[] = ["done", "archived", "aborted"] as const;
+export const VALID_REVIEWER_STATUSES: readonly ReviewerStatus[] = [
+  "idle", "working", "done",
+] as const;
+
+export const VALID_TEST_STATUSES: readonly TestStatus[] = [
+  "idle", "working", "waiting", "done",
+] as const;
+
+export const VALID_INTEGRATOR_STATUSES: readonly IntegratorStatus[] = [
+  "idle", "working", "done",
+] as const;
+
+export const TERMINAL_STATUSES: readonly TaskStatus[] = [
+  "done", "archived", "aborted",
+] as const;
 
 export const STATUS_DISPLAY_ORDER: readonly TaskStatus[] = [
   "in_progress", "planned", "draft", "done", "archived", "aborted",
@@ -91,6 +149,153 @@ export function nowIso(): string {
     `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
     `${sign}${pad(Math.floor(absOff / 60))}:${pad(absOff % 60)}`
   );
+}
+
+// ---- 迁移 ----
+
+function extractFilename(path: string): string {
+  // "~/.kanban/wave/<uuid>/report-dev-01.md" → "report-dev-01.md"
+  // "report-dev-01.md" → "report-dev-01.md"
+  const parts = path.replace(/\\/g, "/").split("/");
+  const last = parts[parts.length - 1];
+  return last || path;
+}
+
+function extractReportFilename(val: unknown): string {
+  if (typeof val === "string") {
+    return extractFilename(val);
+  }
+  if (val && typeof val === "object" && !Array.isArray(val)) {
+    // Hybrid: {"main": {"description":"...","document":"~/.kanban/..."}}
+    const entries = Object.values(val as Record<string, any>);
+    for (const entry of entries) {
+      if (entry && typeof entry.document === "string") {
+        return extractFilename(entry.document);
+      }
+    }
+  }
+  return "";
+}
+
+function extractReportsArray(val: unknown): string[] {
+  if (typeof val === "string") {
+    return [extractFilename(val)];
+  }
+  if (val && typeof val === "object" && !Array.isArray(val)) {
+    // Hybrid: extract all scope entries
+    const filenames: string[] = [];
+    for (const entry of Object.values(val as Record<string, any>)) {
+      if (entry && typeof entry.document === "string") {
+        filenames.push(extractFilename(entry.document));
+      }
+    }
+    return [...new Set(filenames)];
+  }
+  return [];
+}
+
+export function migrateTask(task: Task): void {
+  if (!task.worktree) return; // 已迁移或新格式，跳过
+
+  const oldWt = task.worktree;
+  const developer: Record<string, DevEntry> = {};
+  const reviewer: Record<string, ReviewerEntry> = {};
+  const test: Record<string, TestEntry> = {};
+  const integrator: Record<string, IntegratorEntry> = {};
+
+  for (const [name, wt] of Object.entries(oldWt)) {
+    const role: WorktreeRole | undefined = wt?.role;
+    switch (role) {
+      case "developer": {
+        developer[name] = {
+          status: mapDevStatus(wt.status),
+          brief: wt.action ?? wt.brief ?? "",
+          attempt: wt.attempt ?? 0,
+          blocked_on: wt.blocked_on ?? null,
+          worktree: wt.cwd ?? null,
+          cwd: wt.cwd ?? null,
+          reports: extractReportsArray(wt.report),
+          review: wt.review ? extractFilename(String(wt.review)) : null,
+          error: wt.error ?? null,
+        };
+        break;
+      }
+      case "reviewer": {
+        const mappedStatus = mapReviewerStatus(wt.status);
+        reviewer[name] = {
+          status: mappedStatus,
+          brief: wt.action ?? wt.brief ?? "",
+          attempt: wt.attempt ?? 0,
+          pass: [],
+          report: extractReportFilename(wt.report),
+          error: wt.error ?? null,
+        };
+        break;
+      }
+      case "test": {
+        test[name] = {
+          status: mapTestStatus(wt.status),
+          brief: wt.action ?? wt.brief ?? "",
+          attempt: wt.attempt ?? 0,
+          worktree: wt.cwd ?? null,
+          cwd: wt.cwd ?? null,
+          pass: [],
+          fail: [],
+          report: extractReportFilename(wt.report),
+          error: wt.error ?? null,
+        };
+        break;
+      }
+      case "integrator": {
+        integrator[name] = {
+          status: mapIntegratorStatus(wt.status),
+          brief: wt.action ?? wt.brief ?? "",
+          attempt: wt.attempt ?? 0,
+          worktree: wt.cwd ?? null,
+          cwd: wt.cwd ?? null,
+          merged: [],
+          conflicts: [],
+          report: extractReportFilename(wt.report),
+          error: wt.error ?? null,
+        };
+        break;
+      }
+    }
+  }
+
+  task.developer = developer;
+  task.reviewer = reviewer;
+  task.test = test;
+  task.integrator = integrator;
+  delete task.worktree;
+}
+
+function mapDevStatus(old: unknown): DevStatus {
+  const s = String(old ?? "idle");
+  if ((VALID_DEV_STATUSES as readonly string[]).includes(s)) return s as DevStatus;
+  return "idle";
+}
+
+function mapReviewerStatus(old: unknown): ReviewerStatus {
+  const s = String(old ?? "idle");
+  if (s === "working") return "working";
+  if (s === "done") return "done";
+  return "idle";
+}
+
+function mapTestStatus(old: unknown): TestStatus {
+  const s = String(old ?? "idle");
+  if (s === "working") return "working";
+  if (s === "waiting") return "waiting";
+  if (s === "done") return "done";
+  return "idle";
+}
+
+function mapIntegratorStatus(old: unknown): IntegratorStatus {
+  const s = String(old ?? "idle");
+  if (s === "working") return "working";
+  if (s === "done") return "done";
+  return "idle";
 }
 
 // ---- 校验 ----
@@ -120,9 +325,7 @@ export function validateKanban(data: unknown): Kanban {
     if (typeof task.created !== "string") {
       throw new Error(`任务 ${uuid.slice(0, 8)} 缺少 created 字段(ISO 时间戳)`);
     }
-    if (task.worktree != null && typeof task.worktree !== "object") {
-      throw new Error(`任务 ${uuid.slice(0, 8)} 的 worktree 必须是对象`);
-    }
+    // 兼容旧 worktree 和新 role key
   }
   return kanban as Kanban;
 }
@@ -136,11 +339,19 @@ export async function readKanban(): Promise<Kanban> {
     );
   }
   const raw = await readFile(KANBAN_FILE, "utf-8");
+  let data: Kanban;
   try {
-    return validateKanban(JSON.parse(raw) ?? {});
+    data = validateKanban(JSON.parse(raw) ?? {});
   } catch (e) {
     throw new Error(`kanban.json 解析失败: ${(e as Error).message}`);
   }
+
+  // Auto-migrate
+  for (const task of Object.values(data)) {
+    migrateTask(task);
+  }
+
+  return data;
 }
 
 export async function writeKanban(data: Kanban): Promise<void> {

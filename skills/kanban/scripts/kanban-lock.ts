@@ -27,13 +27,22 @@ const DEFAULT_OPTS: Required<LockOpts> = {
   retryMaxMs: 400,
 };
 
+const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
+
 function taskChanged(before: Task, after: Task): boolean {
-  return before.status !== after.status
+  if (before.status !== after.status
     || before.description !== after.description
     || before.plan !== after.plan
     || before.draft !== after.draft
-    || before.repo !== after.repo
-    || JSON.stringify(before.worktree) !== JSON.stringify(after.worktree);
+    || before.repo !== after.repo) {
+    return true;
+  }
+  for (const rk of ROLE_KEYS) {
+    if (JSON.stringify((before as any)[rk]) !== JSON.stringify((after as any)[rk])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

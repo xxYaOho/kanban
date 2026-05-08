@@ -2,49 +2,48 @@
 /**
  * Agent 领域字段写入脚本。
  *
- * 用途：Agent 在单次 withKanbanLock 内原子更新 worktree 字段。
- * 所有 --set 操作在同一个锁内完成。
- *
  * 用法:
  *   bun run agent-write.ts --thread <uuid> --worktree <name> --set key=value [...]
  *
  * --thread    任务 UUID，支持短前缀（≥6 字符）
- * --worktree  目标 worktree 名（要写入的 worktree，不一定是 Agent 自己的）
- * --set       字段赋值，可多次传入。key 相对于 worktree.<name>.
- *             null 用字符串 "null" 表示。路径支持 ~/ 和 ~/.kanban/ 前缀。
+ * --worktree  目标 worktree 名（在 developer/reviewer/test/integrator 中查找）
+ * --set       字段赋值，可多次传入。数组字段传 JSON 字符串。
+ * --append-reports <scope>=<json>  向 developer.reports 追加条目
  *
  * stdout: JSON { ok, taskUuid, taskShort, worktree, applied, taskStatus }
- * stderr + exit 1: 错误
  */
 import { withKanbanLock } from "./kanban-lock";
 import {
   resolveUuid,
   type Kanban,
-  VALID_WORKTREE_STATUSES,
+  VALID_DEV_STATUSES,
+  VALID_REVIEWER_STATUSES,
+  VALID_TEST_STATUSES,
+  VALID_INTEGRATOR_STATUSES,
 } from "./kanban-io";
-import { fromKanbanRel } from "./paths";
 
 // ── 白名单 ──────────────────────────────────────────────────────────────────
 
 const AGENT_WRITABLE_FIELDS = new Set([
   "status",
   "attempt",
-  "report",
-  "review",
-  "test",
-  "integration",
   "error",
-  "blocked_on",
+  "blocked_on",   // developer
+  "reports",      // developer (JSON array)
+  "review",       // developer (string)
+  "pass",         // reviewer + test
+  "fail",         // test
+  "report",       // reviewer + test + integrator (string)
+  "merged",       // integrator
+  "conflicts",    // integrator
 ]);
 
-const VALID_INTEGRATION_VALUES = new Set([
-  "pending",
-  "merged",
-  "conflict",
+const ALL_VALID_STATUSES = new Set([
+  ...VALID_DEV_STATUSES,
+  ...VALID_REVIEWER_STATUSES,
+  ...VALID_TEST_STATUSES,
+  ...VALID_INTEGRATOR_STATUSES,
 ]);
-
-// 只有路径类字段才展开 ~
-const PATH_FIELDS = new Set(["report", "review", "test"]);
 
 // ── 参数解析 ─────────────────────────────────────────────────────────────────
 
@@ -53,14 +52,24 @@ interface Op {
   raw: string;
 }
 
+interface AppendReportOp {
+  scope: string;
+  description: string;
+  document: string;
+}
+
 interface Args {
   uuid: string;
   worktree: string;
   ops: Op[];
+  appendReports: AppendReportOp[];
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Partial<Args> & { ops: Op[] } = { ops: [] };
+  const a: Partial<Args> & { ops: Op[]; appendReports: AppendReportOp[] } = {
+    ops: [],
+    appendReports: [],
+  };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = argv[i + 1];
@@ -84,6 +93,23 @@ function parseArgs(argv: string[]): Args {
         i++;
         break;
       }
+      case "--append-reports": {
+        if (!v) throw new Error("--append-reports 缺少值");
+        const eqIdx = v.indexOf("=");
+        if (eqIdx === -1) throw new Error("--append-reports 格式: <scope>=<json>");
+        const scope = v.slice(0, eqIdx);
+        const entryJson = v.slice(eqIdx + 1);
+        let entry: Record<string, unknown>;
+        try { entry = JSON.parse(entryJson); } catch {
+          throw new Error(`--append-reports JSON 解析失败: ${entryJson}`);
+        }
+        if (typeof entry.description !== "string" || typeof entry.document !== "string") {
+          throw new Error("--append-reports 需要 { description: string, document: string }");
+        }
+        a.appendReports.push({ scope, description: entry.description, document: entry.document });
+        i++;
+        break;
+      }
       default:
         throw new Error(`未知参数: ${k}`);
     }
@@ -91,7 +117,9 @@ function parseArgs(argv: string[]): Args {
 
   if (!a.uuid) throw new Error("缺少 --thread");
   if (!a.worktree) throw new Error("缺少 --worktree");
-  if (a.ops.length === 0) throw new Error("至少需要一个 --set");
+  if (a.ops.length === 0 && a.appendReports.length === 0) {
+    throw new Error("至少需要一个 --set 或 --append-reports");
+  }
 
   return a as Args;
 }
@@ -99,78 +127,120 @@ function parseArgs(argv: string[]): Args {
 // ── 值校验与转换 ─────────────────────────────────────────────────────────────
 
 function parseValue(key: string, raw: string): unknown {
-  // null 值
   if (raw === "null") return null;
 
   switch (key) {
     case "status": {
-      if (!(VALID_WORKTREE_STATUSES as readonly string[]).includes(raw)) {
-        throw new Error(
-          `无效的 status: "${raw}"，合法值: ${VALID_WORKTREE_STATUSES.join(", ")}`,
-        );
+      if (!ALL_VALID_STATUSES.has(raw)) {
+        throw new Error(`无效的 status: "${raw}"`);
       }
       return raw;
     }
     case "attempt": {
-      if (!/^\d+$/.test(raw)) {
-        throw new Error(`attempt 必须是非负整数，收到: "${raw}"`);
-      }
+      if (!/^\d+$/.test(raw)) throw new Error(`attempt 必须是非负整数，收到: "${raw}"`);
       const n = Number(raw);
-      if (!Number.isSafeInteger(n)) {
-        throw new Error(`attempt 数值过大: "${raw}"`);
-      }
+      if (!Number.isSafeInteger(n)) throw new Error(`attempt 数值过大: "${raw}"`);
       return n;
     }
-    case "integration": {
-      // raw === "null" 已在函数开头处理
-      if (!VALID_INTEGRATION_VALUES.has(raw)) {
-        throw new Error(
-          `无效的 integration: "${raw}"，合法值: null, pending, merged, conflict`,
-        );
+    case "reports":
+    case "pass":
+    case "fail":
+    case "merged":
+    case "conflicts": {
+      // 数组字段，接受 JSON 数组或原始 JSON 值
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) throw new Error(`${key} 必须是数组`);
+        return parsed;
+      } catch (e) {
+        if (e instanceof SyntaxError) throw new Error(`${key} JSON 解析失败: ${raw}`);
+        throw e;
       }
-      return raw;
     }
     default:
-      // report / review / test 展开 ~；error / blocked_on 原样保留
-      return PATH_FIELDS.has(key) ? fromKanbanRel(raw) : raw;
+      // review, report, error, blocked_on — 字符串原样
+      return raw;
   }
 }
 
 // ── 主逻辑 ───────────────────────────────────────────────────────────────────
 
+type RoleKey = "developer" | "reviewer" | "test" | "integrator";
+const ROLE_KEYS: RoleKey[] = ["developer", "reviewer", "test", "integrator"];
+
 async function main() {
   const args = parseArgs(Bun.argv.slice(2));
 
   const result = await withKanbanLock((kanban: Kanban) => {
-    // 1. 解析 UUID：先精确匹配，再前缀匹配（与 role.ts / update-task.ts 一致）
+    // 1. 解析 UUID
     let uuid = kanban[args.uuid] ? args.uuid : undefined;
     if (!uuid) {
       const matches = resolveUuid(kanban, args.uuid);
-      if (matches.length === 0) {
-        throw new Error(`未找到匹配的 UUID: "${args.uuid}"`);
-      }
+      if (matches.length === 0) throw new Error(`未找到匹配的 UUID: "${args.uuid}"`);
       if (matches.length > 1) {
-        throw new Error(
-          `UUID 前缀 "${args.uuid}" 匹配多个任务: ${matches.join(", ")}`,
-        );
+        throw new Error(`UUID 前缀 "${args.uuid}" 匹配多个任务: ${matches.join(", ")}`);
       }
       uuid = matches[0];
     }
     const task = kanban[uuid];
 
-    // 2. 找到目标 worktree
-    const wt = task.worktree?.[args.worktree];
-    if (!wt) {
-      const existing = Object.keys(task.worktree ?? {}).join(", ") || "(无)";
+    // 2. 在所有 role key 中查找目标 worktree
+    let roleKey: RoleKey | null = null;
+    let entry: Record<string, unknown> | null = null;
+    for (const rk of ROLE_KEYS) {
+      const roleEntries = task[rk] as Record<string, any> | undefined;
+      if (roleEntries?.[args.worktree]) {
+        roleKey = rk;
+        entry = roleEntries[args.worktree] as Record<string, unknown>;
+        break;
+      }
+    }
+
+    if (!entry) {
+      const existing = ROLE_KEYS.flatMap((rk) => Object.keys((task[rk] as any) ?? {}));
       throw new Error(
         `worktree "${args.worktree}" 不存在于任务 ${uuid.slice(0, 8)}。` +
-          `现有 worktree: ${existing}`,
+          `现有条目: ${existing.join(", ") || "(无)"}`,
       );
     }
 
     // 3. 校验并应用 --set
     const applied: string[] = [];
     for (const op of args.ops) {
+      // 向后兼容：旧字段 report/review/test 映射到新结构
+      if (op.key === "report" || op.key === "review" || op.key === "test") {
+        if (roleKey === "developer" && op.key === "review") {
+          // developer.review — 单字符串字段
+          entry[op.key] = op.raw === "null" ? null : op.raw;
+          applied.push(`${op.key}=${op.raw}`);
+          continue;
+        }
+        if (roleKey === "reviewer" && op.key === "report") {
+          entry["report"] = op.raw === "null" ? "" : op.raw;
+          applied.push(`report=${op.raw}`);
+          continue;
+        }
+        if (roleKey === "test" && op.key === "report") {
+          entry["report"] = op.raw === "null" ? "" : op.raw;
+          applied.push(`report=${op.raw}`);
+          continue;
+        }
+        if (roleKey === "integrator" && op.key === "report") {
+          entry["report"] = op.raw === "null" ? "" : op.raw;
+          applied.push(`report=${op.raw}`);
+          continue;
+        }
+        // developer.report → developer.reports 数组追加
+        if (roleKey === "developer" && op.key === "report") {
+          const reports = (entry["reports"] as string[]) ?? [];
+          const filename = op.raw === "null" ? "" : op.raw.split("/").pop() ?? op.raw;
+          if (filename) reports.push(filename);
+          entry["reports"] = reports;
+          applied.push(`reports.+=${filename}`);
+          continue;
+        }
+      }
+
       if (!AGENT_WRITABLE_FIELDS.has(op.key)) {
         throw new Error(
           `字段 "${op.key}" 不在 Agent 可写白名单中。` +
@@ -178,15 +248,24 @@ async function main() {
         );
       }
       const value = parseValue(op.key, op.raw);
-      (wt as Record<string, unknown>)[op.key] = value;
+      entry[op.key] = value;
       applied.push(`${op.key}=${op.raw}`);
     }
 
-    // 4. 返回结果（withKanbanLock 自动写回 + 刷新 updated）
+    // 4. 应用 --append-reports
+    for (const ar of args.appendReports) {
+      const reports = (entry["reports"] as string[]) ?? [];
+      const filename = ar.document.split("/").pop() ?? ar.document;
+      reports.push(filename);
+      entry["reports"] = reports;
+      applied.push(`reports.+=${filename}`);
+    }
+
     return {
       taskUuid: uuid,
       taskShort: uuid.slice(0, 8),
       worktree: args.worktree,
+      roleKey,
       applied,
       taskStatus: task.status,
     };

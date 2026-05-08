@@ -7,19 +7,21 @@
     "plan": "~/.kanban/<repo>/<uuid>/plan.md",
     "created": "<ISO8601>",
     "updated": "<ISO8601>",
-    "worktree": {
-      "<worktree-name>": {
-        "role": "developer",
-        "action": "<这个 worktree 要做什么>",
+    "developer": {
+      "<name>": {
         "status": "idle",
+        "brief": "<职责描述>",
         "attempt": 0,
-        "report": null,
+        "blocked_on": null,
+        "worktree": null,
+        "cwd": null,
+        "reports": [],
         "review": null,
-        "test": null,
-        "integration": null,
-        "error": null,
-        "blocked_on": null
+        "error": null
       }
-    }
+    },
+    "reviewer": {},
+    "test": {},
+    "integrator": {}
   }
 }

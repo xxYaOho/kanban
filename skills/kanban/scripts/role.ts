@@ -3,26 +3,20 @@
  * /kanban --role 实现
  *
  * 参数:
- *   --worktree <name>          当前 worktree 名(由 Agent 层传入 basename(pwd))
+ *   --worktree <name>          worktree 名(developer 必填，其他 role 可选)
  *   --role <role>              developer | reviewer | test | integrator
- *   --action <action>          worktree 职责描述(非空)
- *   --thread <uuid>            目标任务 UUID(完整或短前缀,Agent 层已解析)
- *   --claim-from <presetName>  可选:认领预分配席位,key 不变,写入 cwd 记录物理目录
+ *   --brief <brief>            职责描述(非空)
+ *   --thread <uuid>            目标任务 UUID
+ *   --claim-from <presetName>  可选:认领预分配席位(仅 developer)
  *
- * stdout: JSON { ok, worktree, stableKey, role, action, taskUuid, taskShort, autoStarted, autoStartReason?, claimedFrom? }
- * 冲突/错误: exit 1 + stderr
- *
- * developer 自动领取:新注册且 task.status ∈ {planned,in_progress} 且 blocked_on 为空时,
- * 自动将 worktree.status 设为 "working"、attempt 设为 1,并将 task.status 从 planned 提升为 in_progress。
+ * stdout: JSON { ok, worktree, role, brief, taskUuid, taskShort, autoStarted, autoStartReason? }
  */
 import { withKanbanLock } from "./kanban-lock";
 import {
   resolveUuid,
   type Kanban,
   type TaskStatus,
-  type Worktree,
   type WorktreeRole,
-  type WorktreeStatus,
   VALID_ROLES,
   TERMINAL_STATUSES,
 } from "./kanban-io";
@@ -33,7 +27,7 @@ const _terminalSet = new Set<string>(TERMINAL_STATUSES);
 interface Args {
   worktree: string;
   role: WorktreeRole;
-  action: string;
+  brief: string;
   uuid: string;
   claimFrom?: string;
 }
@@ -46,15 +40,19 @@ function parseArgs(argv: string[]): Args {
     switch (k) {
       case "--worktree": a.worktree = v; i++; break;
       case "--role": a.role = v as WorktreeRole; i++; break;
-      case "--action": a.action = v; i++; break;
+      case "--brief":
+      case "--action": a.brief = v; i++; break; // --action 向后兼容
       case "--thread":
       case "--uuid": a.uuid = v; i++; break;
       case "--claim-from": a.claimFrom = v; i++; break;
     }
   }
-  if (!a.worktree) throw new Error("缺参: --worktree");
+  if (a.role === "developer" && !a.worktree) {
+    throw new Error("developer 需要在 worktree 中注册，缺参: --worktree");
+  }
+  if (!a.worktree) a.worktree = "main";
   if (!a.role || !_validRoleSet.has(a.role)) throw new Error(`非法 role: ${a.role}`);
-  if (!a.action || !a.action.trim()) throw new Error("--action 不能为空");
+  if (!a.brief || !a.brief.trim()) throw new Error("--brief 不能为空");
   if (!a.uuid) throw new Error("缺参: --thread");
   return a as Args;
 }
@@ -62,7 +60,6 @@ function parseArgs(argv: string[]): Args {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  // 防御性校验：claim-from 不能等于 worktree（名称相同时无需认领，走 Path B 幂等即可）
   if (args.claimFrom && args.claimFrom === args.worktree) {
     throw new Error("--claim-from 不能等于 --worktree（名称相同时无需认领，走 Path B 幂等即可）");
   }
@@ -71,7 +68,6 @@ async function main() {
   let autoStarted = false;
   let autoStartReason: string | null = null;
   let claimedFrom: string | null = null;
-  // existingKey 在锁内赋值，锁外 stdout 需用，故在此声明
   let existingKey: string | undefined;
 
   await withKanbanLock(async (kanban: Kanban) => {
@@ -94,100 +90,156 @@ async function main() {
 
     if (_terminalSet.has(task.status)) {
       throw new Error(
-        `任务 ${uuid.slice(0, 8)} 已处于终态 [${task.status}]，无法注册 worktree`,
+        `任务 ${uuid.slice(0, 8)} 已处于终态 [${task.status}]，无法注册`,
       );
     }
 
-    // ══════════════════════════════════════════════
-    // 三路合一：claim / 幂等 / 新建
-    // ══════════════════════════════════════════════
-    let target: Partial<Worktree>;
-    // 优先按 cwd 匹配，其次按 key 匹配（向后兼容无 cwd 的旧数据）
-    existingKey = Object.keys(task.worktree).find(
-      (k) => task.worktree[k].cwd === args.worktree,
-    ) ?? (task.worktree[args.worktree] ? args.worktree : undefined);
-    const existing = existingKey ? task.worktree[existingKey] : undefined;
+    const roleKey = args.role as keyof Pick<Kanban[string], "developer" | "reviewer" | "test" | "integrator">;
 
-    if (args.claimFrom) {
-      // ── 路径 A：原地认领预设席位（key 不变，cwd 记录物理目录）──
-      const preset = task.worktree[args.claimFrom];
+    // ── 查找已有条目 ──
+    if (args.role === "developer") {
+      existingKey = Object.keys(task.developer).find(
+        (k) => task.developer[k].cwd === args.worktree,
+      ) ?? (task.developer[args.worktree] ? args.worktree : undefined);
+    } else if (args.role === "reviewer") {
+      existingKey = task.reviewer[args.worktree] ? args.worktree : undefined;
+    } else if (args.role === "test") {
+      existingKey = task.test[args.worktree] ? args.worktree : undefined;
+    } else if (args.role === "integrator") {
+      existingKey = task.integrator[args.worktree] ? args.worktree : undefined;
+    }
+
+    // ── Developer claim-from ──
+    if (args.claimFrom && args.role === "developer") {
+      const preset = task.developer[args.claimFrom];
       if (!preset) {
-        throw new Error(
-          `预分配席位 ${args.claimFrom} 不存在或已被其他 worktree 认领`,
-        );
+        throw new Error(`预分配席位 ${args.claimFrom} 不存在`);
       }
-      if (preset.status !== "idle" || (preset.attempt ?? 0) > 0) {
+      if (preset.status !== "idle" || preset.attempt > 0) {
         throw new Error(
           `席位 ${args.claimFrom} 已被认领 (status=${preset.status}, attempt=${preset.attempt})`,
         );
       }
-      if (preset.role !== args.role) {
-        throw new Error(
-          `席位 ${args.claimFrom} 的角色是 ${preset.role}，与请求的 ${args.role} 不匹配`,
-        );
-      }
-      // 若已有其他 key 的 cwd === args.worktree，拒绝（防止一个目录双注册）
-      if (existing) {
+      if (existingKey) {
         throw new Error(
           `当前 worktree ${args.worktree} 已在任务中注册（key=${existingKey}），无法同时认领席位`,
         );
       }
       preset.cwd = args.worktree;
+      preset.worktree = args.worktree;
       preset.attempt = 1;
-      target = preset;
+      preset.brief = args.brief;
       claimedFrom = args.claimFrom;
-    } else if (existing) {
-      // ── 路径 B：已有条目，冲突检查 ──
-      if (existing.role !== args.role) {
-        throw new Error(
-          `ROLE_CONFLICT：worktree ${args.worktree} 已注册为 ${existing.role}（key=${existingKey}），` +
-            `跨角色切换请走: /kanban --update ${uuid.slice(0, 8)} worktree.${existingKey}.role=${args.role}`,
-        );
-      }
-      target = existing;
-    } else {
-      // ── 路径 C：全新注册 ──
-      target = {
-        role: args.role,
-        cwd: args.worktree,
-        status: "idle" as WorktreeStatus,
-        attempt: 0,
-        report: null,
-        review: null,
-        test: null,
-        integration: null,
-        error: null,
-        blocked_on: null,
-      };
-      task.worktree[args.worktree] = target;
-    }
-
-    // ── 统一赋值 action / cwd ──
-    target.action = args.action;
-    // cwd 幂等覆盖：Path A/C 各自已设，Path B 无预设故需此赋值
-    target.cwd = args.worktree;
-
-    // ── Auto-start（developer 专属）──
-    if (args.role === "developer") {
-      // target 已在三路分支中指向正确的 worktree 条目，不依赖 args.worktree
-      const wt = target;
-      if (wt.status === "idle") {
+      // Auto-start
+      if (preset.status === "idle") {
         if (task.status === "draft") {
           autoStartReason = "任务尚在 draft，需先提升到 planned";
         } else if (task.status === "planned" || task.status === "in_progress") {
-          if (!wt.blocked_on) {
-            wt.status = "working";
-            wt.attempt = 1;
+          if (!preset.blocked_on) {
+            preset.status = "working";
             autoStarted = true;
             if (task.status === "planned") {
               task.status = "in_progress" as TaskStatus;
             }
           } else {
-            autoStartReason = `被 ${wt.blocked_on} 阻塞`;
+            autoStartReason = `被 ${preset.blocked_on} 阻塞`;
           }
-        } else {
-          autoStartReason = `任务状态为 ${task.status}`;
         }
+      }
+    } else if (existingKey) {
+      // ── 幂等重注册 ──
+      if (args.role === "developer") {
+        const existing = task.developer[existingKey];
+        existing.brief = args.brief;
+        if (args.worktree !== "main") {
+          existing.cwd = args.worktree;
+          existing.worktree = args.worktree;
+        }
+        // Auto-start
+        if (existing.status === "idle") {
+          if (task.status === "draft") {
+            autoStartReason = "任务尚在 draft，需先提升到 planned";
+          } else if (task.status === "planned" || task.status === "in_progress") {
+            if (!existing.blocked_on) {
+              existing.status = "working";
+              existing.attempt = Math.max(existing.attempt, 1);
+              autoStarted = true;
+              if (task.status === "planned") {
+                task.status = "in_progress" as TaskStatus;
+              }
+            } else {
+              autoStartReason = `被 ${existing.blocked_on} 阻塞`;
+            }
+          }
+        }
+      } else if (args.role === "reviewer") {
+        task.reviewer[existingKey].brief = args.brief;
+      } else if (args.role === "test") {
+        task.test[existingKey].brief = args.brief;
+      } else if (args.role === "integrator") {
+        task.integrator[existingKey].brief = args.brief;
+      }
+    } else {
+      // ── 全新注册 ──
+      if (args.role === "developer") {
+        task.developer[args.worktree] = {
+          status: "idle",
+          brief: args.brief,
+          attempt: 0,
+          blocked_on: null,
+          worktree: args.worktree,
+          cwd: args.worktree,
+          reports: [],
+          review: null,
+          error: null,
+        };
+        // Auto-start
+        const dev = task.developer[args.worktree];
+        if (task.status === "draft") {
+          autoStartReason = "任务尚在 draft，需先提升到 planned";
+        } else if (task.status === "planned" || task.status === "in_progress") {
+          if (!dev.blocked_on) {
+            dev.status = "working";
+            dev.attempt = 1;
+            autoStarted = true;
+            if (task.status === "planned") {
+              task.status = "in_progress" as TaskStatus;
+            }
+          }
+        }
+      } else if (args.role === "reviewer") {
+        task.reviewer[args.worktree] = {
+          status: "idle",
+          brief: args.brief,
+          attempt: 0,
+          pass: [],
+          report: "",
+          error: null,
+        };
+      } else if (args.role === "test") {
+        task.test[args.worktree] = {
+          status: "idle",
+          brief: args.brief,
+          attempt: 0,
+          worktree: args.worktree === "main" ? null : args.worktree,
+          cwd: args.worktree === "main" ? null : args.worktree,
+          pass: [],
+          fail: [],
+          report: "",
+          error: null,
+        };
+      } else if (args.role === "integrator") {
+        task.integrator[args.worktree] = {
+          status: "idle",
+          brief: args.brief,
+          attempt: 0,
+          worktree: args.worktree === "main" ? null : args.worktree,
+          cwd: args.worktree === "main" ? null : args.worktree,
+          merged: [],
+          conflicts: [],
+          report: "",
+          error: null,
+        };
       }
     }
   });
@@ -199,7 +251,7 @@ async function main() {
         worktree: args.worktree,
         stableKey: args.claimFrom ?? existingKey ?? args.worktree,
         role: args.role,
-        action: args.action,
+        brief: args.brief,
         taskUuid: resultUuid,
         taskShort: resultUuid.slice(0, 8),
         autoStarted,

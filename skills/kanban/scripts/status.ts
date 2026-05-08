@@ -6,6 +6,8 @@
  */
 import { readKanban, STATUS_DISPLAY_ORDER } from "./kanban-io";
 
+const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
+
 function humanAgo(iso?: string): string {
   if (!iso) return "?";
   const delta = Date.now() - new Date(iso).getTime();
@@ -34,13 +36,18 @@ async function main() {
         new Date(a[1].updated ?? a[1].created).getTime(),
     );
     for (const [uuid, task] of items) {
-      const wc = Object.keys(task.worktree ?? {}).length;
-      const active = Object.values(task.worktree ?? {}).filter(
-        (w: any) => w.status === "working" || w.status === "waiting_review",
-      ).length;
+      const entryCount = ROLE_KEYS.reduce(
+        (sum, rk) => sum + Object.keys(task[rk] ?? {}).length, 0,
+      );
+      const active = ROLE_KEYS.reduce((sum, rk) => {
+        const entries = task[rk] ?? {};
+        return sum + Object.values(entries).filter(
+          (e: any) => e.status === "working" || e.status === "waiting_review",
+        ).length;
+      }, 0);
       out +=
         `  ${uuid.slice(0, 8)}  ${task.repo.padEnd(12)}  ` +
-        `wt=${wc}` +
+        `entries=${entryCount}` +
         (active > 0 ? `(active=${active})` : "") +
         `  updated ${humanAgo(task.updated ?? task.created)}  ` +
         `${task.description}\n`;

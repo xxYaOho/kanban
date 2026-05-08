@@ -2,26 +2,24 @@
  * /kanban 空指令实现
  *
  * stdout: 格式化的 help + active threads 文本
- * 无活跃任务 / kanban 未初始化时优雅降级
  */
-import { readKanban, type Worktree, type Task } from "./kanban-io";
+import { readKanban, type Task } from "./kanban-io";
 
 const SEP = "─".repeat(64);
 const INDENT = "      ";
+const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
 
 const STATUS_SYMBOL: Record<string, string> = {
   idle: "○",
   working: "✦",
   waiting_review: "◐",
+  under_review: "◑",
   review_approved: "✓",
   review_rejected: "✗",
+  waiting: "⏳",
   done: "■",
   blocked: "⊘",
 };
-
-function stationLabel(key: string, wt: Partial<Worktree>): string {
-  return wt.cwd && wt.cwd !== key ? `${key}@${wt.cwd}` : key;
-}
 
 function padRight(s: string, w: number): string {
   return s.length >= w ? s.slice(0, w) : s + " ".repeat(w - s.length);
@@ -29,20 +27,30 @@ function padRight(s: string, w: number): string {
 
 function renderThread(description: string, uuid: string, task: Task): string {
   const short = uuid.slice(0, 8);
-  const entries = Object.entries(task.worktree ?? {});
+  const allEntries: Array<{ role: string; key: string; status: string; cwd: string | null }> = [];
+  for (const rk of ROLE_KEYS) {
+    const entries = task[rk] ?? {};
+    for (const [key, e] of Object.entries(entries)) {
+      allEntries.push({
+        role: rk,
+        key,
+        status: (e as any).status ?? "-",
+        cwd: (e as any).cwd ?? null,
+      });
+    }
+  }
 
   let out = "";
   out += `    ✤ ${description} [${task.status}]\n`;
   out += `${INDENT}id: ${short}\n`;
   out += `${INDENT}${SEP}\n`;
-  out += `${INDENT}${padRight("Station", 32)}  ${padRight("Role", 12)}  Status\n`;
+  out += `${INDENT}${padRight("Entry", 32)}  ${padRight("Role", 12)}  Status\n`;
   out += `${INDENT}${SEP}\n`;
 
-  for (const [key, w] of entries) {
-    const wt = w as Partial<Worktree>;
-    const label = stationLabel(key, wt);
-    const symbol = STATUS_SYMBOL[wt.status ?? ""] ?? "?";
-    out += `${INDENT}${padRight(label, 32)}  ${padRight(wt.role ?? "-", 12)}  ${symbol} ${wt.status ?? "-"}\n`;
+  for (const e of allEntries) {
+    const label = e.cwd && e.cwd !== e.key ? `${e.key}@${e.cwd}` : e.key;
+    const symbol = STATUS_SYMBOL[e.status] ?? "?";
+    out += `${INDENT}${padRight(label, 32)}  ${padRight(e.role, 12)}  ${symbol} ${e.status}\n`;
   }
 
   return out;
@@ -65,22 +73,21 @@ async function main() {
     activeCount = active.length;
 
     for (const [uuid, task] of active) {
-      for (const w of Object.values(task.worktree ?? {})) {
-        const wt = w as Partial<Worktree>;
-        if (wt.status === "idle" && (wt.attempt ?? 0) === 0) idleStationCount++;
+      for (const rk of ROLE_KEYS) {
+        const entries = task[rk] ?? {};
+        for (const e of Object.values(entries) as any[]) {
+          if (e.status === "idle" && (e.attempt ?? 0) === 0) idleStationCount++;
+        }
       }
       threadBlocks += renderThread(task.description, uuid, task) + "\n";
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("kanban.json 不存在")) {
-      // 预期：未初始化，静默降级
-    } else {
+    if (!msg.includes("kanban.json 不存在")) {
       console.error("⚠️  kanban 读取异常:", msg);
     }
   }
 
-  // header
   let out = "";
   if (kanbanReady && activeCount > 0) {
     out += `📋 Kanban  ·  Active Threads: ${activeCount}  ·  Idle Stations: ${idleStationCount}\n\n`;
@@ -88,7 +95,6 @@ async function main() {
     out += `📋 Kanban\n\n`;
   }
 
-  // commands
   out += `Commands\n`;
   out += `${SEP}\n`;
   out += `  ${padRight("--new", 28)}${padRight("Create Thread", 22)} 创建任务\n`;
@@ -97,7 +103,6 @@ async function main() {
   out += `  ${padRight("--role <role>", 28)}${padRight("Get Role & Station", 22)} 获取角色与工作站\n`;
   out += `${SEP}\n`;
 
-  // active threads
   out += `\nActive Threads\n`;
   out += `${SEP}\n`;
 
