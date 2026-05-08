@@ -30,6 +30,71 @@ UUID 允许短前缀(≥6),多候选时列表让用户选。
    (b) 人工直接编辑 ~/.kanban/kanban.json(会破坏一致性,自行承担)
 ```
 
+## 席位重评估
+
+当 `--update` 涉及 `plan` 字段变更（替换或指向新 plan 文件），且任务 status ∈ {draft, planned} 时，在写入前执行席位重评估。
+
+### 触发条件
+
+- `plan` 字段在本次 update 中被修改
+- 任务尚未进入 `in_progress`（即 status 为 draft 或 planned）
+- 不触发：任务已在执行中（席位已被认领，结构调整会丢失状态）
+
+### 流程
+
+1. 模型读取新 plan.md 内容
+2. 按 `cmd-new.md` 中的「预分配席位智能分析」4 条件（C1-C4）重新评估当前席位是否仍适配新 plan
+3. 比对结果：
+
+**席位仍适配** → 不中断流程，diff 底部追加：
+
+```
+ℹ️ 席位重评估：当前席位仍适配新 plan
+```
+
+**席位需调整** → AskUserQuestion：
+
+```
+⚠️ 计划调整后席位可能不再合适：
+当前: <N> dev（<现有席位列表>）
+建议: <调整建议>（合并为 1 个席位 / 拆分为 <M> dev / 调整 blocked_on 链）
+
+(a) 重新调整席位
+(b) 保留当前席位不变
+(c) 暂不处理，仅保存 plan
+```
+
+4. 用户选择处理：
+   - 选 (a) → 使用 `del:` + `add:` ops 重建席位结构：
+     - 删除所有旧 developer 条目（仅在均 idle + attempt=0 时可操作）
+     - 按新分析结果创建 developer 条目（add op 支持 `blocked_on`）
+     - 非 developer 角色（reviewer/test/integrator）不受影响
+   - 选 (b) → 仅保存 plan，席位不变，diff 底部追加 `⚠️ 席位未随 plan 调整，可能存在不匹配`
+   - 选 (c) → 仅保存 plan，不调整席位，不追加警告
+
+### 席位已被认领时的处理
+
+若任务已有 developer 条目被认领（attempt > 0 或 status ≠ idle），无法通过 del/add 重建。此时：
+
+```
+⚠️ 以下席位已被认领，无法结构调整：
+  - <seat-name>（status=<status>, attempt=<attempt>）
+建议：等待当前工作完成后再调整，或手动处理。
+
+(a) 仅保存 plan，暂不调整席位
+(b) 取消本次 update
+```
+
+### 实现说明
+
+席位调整通过标准的 `del:` + `add:` ops 实现，无需新增脚本逻辑。`add` op 的 JSON 格式：
+
+```
+add:developer:<name>:{"brief":"...","blocked_on":"<other-dev-name>"}
+```
+
+`blocked_on` 字段可选，仅在 developer 角色且存在依赖时传入。
+
 ## 交互式流程
 
 ### 0. 定位任务(uuid 解析)
@@ -109,6 +174,8 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 ```
 
 **校验**:输入后检查文件是否存在且非空字节。不存在则提示并重新询问。
+
+> plan 变更确认后，触发「席位重评估」流程（见上方章节），在 diff 展示前完成。
 
 #### `description`
 

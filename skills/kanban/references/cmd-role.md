@@ -67,6 +67,9 @@
 (b) 不认领，创建独立的新角色
 ```
 
+若席位含 `blockedOn`（来自 `idleStations` 的 `blockedOn` 字段），追加提示：
+`ℹ️ 该席位需等待 <blockedOn> 完成后才能启动（已设置 blocked_on）`
+
 - 用户选 (a) → 脚本传 `--claim-from <stationName>`，继续步骤 3 采集 brief（预分配的 action 作为默认建议）
 - 用户选 (b) → 不传 `--claim-from`，继续步骤 3
 
@@ -79,6 +82,8 @@
 (c) 不认领，创建独立的新角色
 ```
 
+各选项若含 `blockedOn`，在 action 后追加 `（阻塞于 <blockedOn>）`。
+
 **有 3 个及以上空置席位** → 按优先级展示前 3，注明总数：
 
 ```
@@ -88,6 +93,8 @@
 (c) <stationName3> — <action3>
 (d) 不认领，创建独立的新角色
 ```
+
+各选项若含 `blockedOn`，同上处理。
 
 席位按 `task.worktree` 中的顺序排列（`--new` 创建时先定义的优先级更高），Agent 层按 `idleStations` 数组原序读取即可。
 

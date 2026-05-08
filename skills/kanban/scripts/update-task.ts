@@ -52,7 +52,7 @@ const _validRoleSet = new Set<string>(ROLE_KEYS);
 
 type Op =
   | { kind: "set"; path: string; value: string }
-  | { kind: "add"; role: RoleKey; name: string; brief: string }
+  | { kind: "add"; role: RoleKey; name: string; brief: string; blocked_on?: string | null }
   | { kind: "del"; role: RoleKey; name: string };
 
 function parseOps(argv: string[]): Op[] {
@@ -76,7 +76,13 @@ function parseOps(argv: string[]): Op[] {
       if (typeof obj.brief !== "string") {
         throw new Error(`add 需要 {brief}: ${raw}`);
       }
-      ops.push({ kind: "add", role: role as RoleKey, name, brief: obj.brief });
+      ops.push({
+        kind: "add",
+        role: role as RoleKey,
+        name,
+        brief: obj.brief,
+        blocked_on: obj.blocked_on ?? undefined,
+      });
     } else if (raw.startsWith("del:")) {
       // del:<role>:<name>
       const body = raw.slice("del:".length);
@@ -184,7 +190,9 @@ async function main() {
         }
         const entries = getRoleEntries(task, op.role);
         if (entries[op.name]) throw new Error(`${op.role}.${op.name} 已存在`);
-        entries[op.name] = { status: "idle", brief: op.brief, attempt: 0 };
+        const newEntry: Record<string, unknown> = { status: "idle", brief: op.brief, attempt: 0 };
+        if (op.blocked_on) newEntry.blocked_on = op.blocked_on;
+        entries[op.name] = newEntry;
       } else if (op.kind === "del") {
         if (!structuralAllowed) {
           throw new Error(`当前 status=${task.status},不允许删除条目。`);

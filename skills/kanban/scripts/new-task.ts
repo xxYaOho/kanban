@@ -85,7 +85,7 @@ function normalizeWorktrees(raw: unknown): {
           status: "idle",
           brief,
           attempt: 0,
-          blocked_on: null,
+          blocked_on: typeof v.blocked_on === "string" ? v.blocked_on : null,
           worktree: null,
           cwd: null,
           reports: [],
@@ -134,6 +134,49 @@ function normalizeWorktrees(raw: unknown): {
   return out;
 }
 
+function validateDevChains(devs: Record<string, Partial<DevEntry>>): Record<string, string> {
+  const names = Object.keys(devs);
+  if (names.length < 2) return {};
+
+  // 1. blocked_on 引用的目标必须存在
+  for (const name of names) {
+    const blocked = devs[name].blocked_on;
+    if (blocked && !devs[blocked]) {
+      throw new Error(
+        `blocked_on 校验失败: developer.${name}.blocked_on="${blocked}" 但 ${blocked} 不存在于 developer 集合中`,
+      );
+    }
+    if (blocked === name) {
+      throw new Error(`blocked_on 校验失败: developer.${name} 不能阻塞自身`);
+    }
+  }
+
+  // 2. 环形依赖检测
+  for (const start of names) {
+    const visited = new Set<string>();
+    let cur: string | null | undefined = start;
+    while (cur && devs[cur]?.blocked_on) {
+      if (visited.has(cur)) {
+        throw new Error(
+          `blocked_on 环形依赖: ${[...visited, cur].join(" → ")}`,
+        );
+      }
+      visited.add(cur);
+      cur = devs[cur].blocked_on;
+      if (visited.size > names.length) break; // 安全上限
+    }
+  }
+
+  // 构建链映射
+  const chains: Record<string, string> = {};
+  for (const name of names) {
+    if (devs[name].blocked_on) {
+      chains[name] = devs[name].blocked_on!;
+    }
+  }
+  return chains;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -172,6 +215,8 @@ async function main() {
   let worktrees = normalizeWorktrees(
     args.worktreesJson ? JSON.parse(args.worktreesJson) : {},
   );
+
+  const blockedOnChains = validateDevChains(worktrees.developer);
 
   // planned 校验
   if (status === "planned" && !args.planRef) {
@@ -218,6 +263,8 @@ async function main() {
             (rk) => [rk, Object.keys(worktrees[rk])],
           ),
         ),
+        blockedOnChains,
+        hasBlockedDeveloper: Object.keys(blockedOnChains).length > 0,
       },
       null,
       2,

@@ -139,15 +139,19 @@ function listReports(repo: string, uuid: string): string[] {
     .map((x) => `  ${humanAgo(new Date(x.mtime).toISOString()).padEnd(8)}  ${x.name}`);
 }
 
-function buildIdleStations(task: Task): Record<string, Array<{ stationName: string; brief: string }>> {
-  const idleStations: Record<string, Array<{ stationName: string; brief: string }>> = {};
+function buildIdleStations(task: Task): Record<string, Array<{ stationName: string; brief: string; blockedOn?: string | null }>> {
+  const idleStations: Record<string, Array<{ stationName: string; brief: string; blockedOn?: string | null }>> = {};
   for (const rk of ROLE_KEYS) {
     const entries = task[rk] ?? {};
     for (const [name, e] of Object.entries(entries)) {
       const entry = e as any;
       if (entry.status === "idle" && (entry.attempt ?? 0) === 0) {
         if (!idleStations[rk]) idleStations[rk] = [];
-        idleStations[rk].push({ stationName: name, brief: entry.brief ?? "" });
+        idleStations[rk].push({
+          stationName: name,
+          brief: entry.brief ?? "",
+          ...(rk === "developer" && entry.blocked_on ? { blockedOn: entry.blocked_on } : {}),
+        });
       }
     }
   }
