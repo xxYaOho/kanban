@@ -56,11 +56,6 @@ enter(cwd = <test-worktree>)
          --thread <uuid> --worktree <自己> --set status=done \
          --set test=~/.kanban/<repo>/<uuid>/test-<NN>.md
        ```
-     - 任务收尾:
-       ```bash
-       bun run $SCRIPTS/update-task.ts \
-         <uuid> set:status=done
-       ```
    - fail:
      - 自己:
        ```bash
@@ -78,7 +73,6 @@ enter(cwd = <test-worktree>)
    ```
    ✅ Test 通过 (attempt 01)
       Report: test-01.md
-      任务顶层 status: in_progress → done
    ```
    或:
    ```

@@ -96,8 +96,8 @@ enter
 
 当**所有** developer 条目都进入 `review_approved`:
 - 不要直接把任务设 `done`
-- 让 test 接力;test 通过后由 test(或 reviewer 终审)推顶层 `status = done`
-- 若没有 test 条目(极少数情况),reviewer 可将各 developer 设为 `done`:
+- 让 test 接力;test 通过后将各 developer 设为 `done`
+- 若没有 test 条目(极少数情况),reviewer 可直接将各 developer 设为 `done`:
   ```bash
   bun run $SCRIPTS/agent-write.ts \
     --thread <uuid> --worktree <dev-name> --set status=done
@@ -106,11 +106,6 @@ enter
   ```bash
   bun run $SCRIPTS/agent-write.ts \
     --thread <uuid> --worktree <reviewer-name> --set status=done
-  ```
-  最后收尾任务:
-  ```bash
-  bun run $SCRIPTS/update-task.ts \
-    <uuid> set:status=done
   ```
 
 ## 非标准评审：Plan Review
