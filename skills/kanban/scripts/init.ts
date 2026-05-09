@@ -45,8 +45,9 @@ const CLAUDE_MD = `# ~/.kanban/ 操作规范
    bun run ~/.claude/skills/kanban/scripts/query.ts <uuid>
 
 ## 归档规范
-- 完成的任务目录移到 \`archive/YYYY-MM/\` 下
-- \`kanban.json\` 中对应条目 status 改为 \`archived\`
+- 运行 \`/kanban --clear [<uuid>]\` 归档终态任务
+- 脚本自动将任务目录移至 \`archive/<uuid>/\`, 更新 \`archive/index.json\`, 并从 \`kanban.json\` 移除条目
+- 归档后若 repo 目录为空, 自动清理
 
 ## 字段权限提醒
 以下字段由 Agent 自主维护，人工不应覆盖：

@@ -22,6 +22,7 @@ description: >
 | `--update <id> [<path>=<value>…]` | 交互式或快捷更新              | `references/cmd-update.md` |
 | `--thread <id> [<context>]`          | 查询任务视图；context 为可选的自然语言指令，Agent 自行判断意图 | `references/cmd-query.md`  |
 | `--role <role> [<context>]`         | 当前 worktree 自注册          | `references/cmd-role.md`   |
+| `--clear [<id>]`                    | 归档终态任务                  | 内置                    |
 | 空 / `--help`                       | 运行 `help.ts`，回复简短提示，引导用户展开工具输出查看详情 | 内置                       |
 
 **空命令回复模板**（根据对话语言选择，不要逐字输出 help.ts stdout）:
@@ -46,6 +47,14 @@ description: >
 4. 多个活跃任务 → AskUserQuestion 列出候选(`<short> — <description> [<status>]`),排序:`in_progress` 优先 > `planned` > `draft`
 5. 无活跃任务 → 提示"当前无活跃任务",建议 `--new` 创建或 `--update <uuid> status=planned` 激活
 6. 终态任务(`done / archived / aborted`)不列入候选
+
+### 路径 C:`/kanban --clear [<uuid>]`
+
+1. Agent 运行 `bun run clear.ts [<uuid>]`（扫描模式）
+2. 若 `candidates` 为空，回复"无待归档任务"
+3. 若 `candidates` 非空，展示清单并请用户文本确认
+4. 用户确认后，运行 `bun run clear.ts --commit [<uuid>]` 执行归档
+5. 汇报结果（归档数量、清理的 repo 目录）
 
 ### 路径 B:自动触发(cwd 在某 worktree 内)
 
@@ -234,6 +243,7 @@ bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
 | `/kanban --new [<context>]`         | `references/cmd-new.md`    |
 | `/kanban --update <id> [ops]`       | `references/cmd-update.md` |
 | `/kanban --thread <id> [<context>]`  | `references/cmd-query.md`  |
+| `/kanban --clear [<id>]`              | `references/cmd-clear.md`  |
 | `/kanban --role <role> [<context>]` | `references/cmd-role.md`   |
 
 ## 角色手册索引

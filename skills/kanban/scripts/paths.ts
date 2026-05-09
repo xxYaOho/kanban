@@ -13,6 +13,18 @@ export const LOCKS_DIR = join(KANBAN_ROOT, ".locks");
 export const LOCK_FILE = join(LOCKS_DIR, "kanban.json.lock");
 export const ARCHIVE_ROOT = join(KANBAN_ROOT, "archive");
 
+export function archiveIndexPath(): string {
+  return join(ARCHIVE_ROOT, "index.json");
+}
+
+export function archiveDir(uuid: string): string {
+  return join(ARCHIVE_ROOT, uuid);
+}
+
+export function archiveTaskPath(uuid: string): string {
+  return join(archiveDir(uuid), "task.json");
+}
+
 export function waveDir(repo: string, uuid: string): string {
   return join(KANBAN_ROOT, repo, uuid);
 }
