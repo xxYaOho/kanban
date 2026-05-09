@@ -32,10 +32,12 @@ description: >
 - 中文: 哦呼，不知道做什么好的话，看看上方的 help 输出吧 :)
 - English: Oh hey, not sure what to do? Check the help output above :)
 
+`$SCRIPTS` = `~/.claude/skills/kanban/scripts`
+
 **通用规则**：
 
 - UUID 支持短前缀（≥6），精确匹配 ≤1 时直通；多候选时 AskUserQuestion 让用户选
-- 所有 TS 脚本通过 `bun run ~/.claude/skills/kanban/scripts/<name>.ts [args…]`
+- 所有 TS 脚本通过 `bun run $SCRIPTS/<name>.ts [args…]`
 - 写操作必须走 `scripts/kanban-lock.ts` 的 `withKanbanLock()`
 - 汇报简明：一行状态 + diff + 下一步建议，不复述全任务
 
@@ -83,7 +85,7 @@ description: >
 所有 TS 脚本用 Bun 执行：
 
 ```bash
-bun run ~/.claude/skills/kanban/scripts/<script>.ts [args...]
+bun run $SCRIPTS/<script>.ts [args...]
 ```
 
 `which bun` 失败时：在 `--init` 环节提示安装（`curl -fsSL https://bun.sh/install | bash`），其他命令直接报缺失后中止。

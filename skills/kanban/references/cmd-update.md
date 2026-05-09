@@ -305,7 +305,7 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 ## 实现脚本
 
 ```bash
-bun run ~/.claude/skills/kanban/scripts/update-task.ts <uuid> <op>...
+bun run $SCRIPTS/update-task.ts <uuid> <op>...
 ```
 
 `<op>` 格式:

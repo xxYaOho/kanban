@@ -53,7 +53,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 3. **原子提交**(按顺序执行):
    - 自己:
      ```bash
-     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+     bun run $SCRIPTS/agent-write.ts \
        --thread <uuid> \
        --worktree <自己> \
        --set status=done \
@@ -61,12 +61,12 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
      ```
    - 每个 developer worktree `<dev>`:
      ```bash
-     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+     bun run $SCRIPTS/agent-write.ts \
        --thread <uuid> --worktree <dev> --set integration=merged
      ```
    - 任务收尾:
      ```bash
-     bun run ~/.claude/skills/kanban/scripts/update-task.ts \
+     bun run $SCRIPTS/update-task.ts \
        <uuid> set:status=done
      ```
 4. **汇报**:
@@ -85,7 +85,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 
 在 integration report 中**显式声明**冲突,执行:
 - ```bash
-  bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+  bun run $SCRIPTS/agent-write.ts \
     --thread <uuid> \
     --worktree <对方> \
     --set integration=conflict \
@@ -98,7 +98,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 
 在 integration report 里**显式声明**失败原因和指向的具体 worktree,不自行修复。执行:
 - ```bash
-  bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+  bun run $SCRIPTS/agent-write.ts \
     --thread <uuid> \
     --worktree <你> \
     --set status=blocked \

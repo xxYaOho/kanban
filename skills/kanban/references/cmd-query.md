@@ -92,7 +92,7 @@ test          test       idle           -        -
 ## 实现脚本
 
 ```bash
-bun run ~/.claude/skills/kanban/scripts/query.ts <uuid>
+bun run $SCRIPTS/query.ts <uuid>
 ```
 
 脚本负责:

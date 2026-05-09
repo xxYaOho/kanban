@@ -42,7 +42,7 @@ const CLAUDE_MD = `# ~/.kanban/ 操作规范
 1. 确认当前无 Agent 正在运行（避免写冲突）
 2. 手动编辑 \`kanban.json\`
 3. 用以下命令验证格式：
-   bun run ~/.claude/skills/kanban/scripts/query.ts <uuid>
+   bun run $SCRIPTS/query.ts <uuid>
 
 ## 归档规范
 - 运行 \`/kanban --clear [<uuid>]\` 归档终态任务

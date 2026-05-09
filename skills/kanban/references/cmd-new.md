@@ -142,7 +142,7 @@ C3 是唯一允许"有条件通过"的项——当 plan 中明确描述了 Phase
 ## 实现脚本
 
 ```bash
-bun run ~/.claude/skills/kanban/scripts/new-task.ts \
+bun run $SCRIPTS/new-task.ts \
   --mode <extract|fromFile|blank> \
   --repo <repo> \
   --description <desc> \

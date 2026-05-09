@@ -48,7 +48,7 @@ enter(cwd = <worktree>)
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `dev-report` 模板
 3. **原子提交**(两条命令,顺序执行):
    - ```bash
-     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+     bun run $SCRIPTS/agent-write.ts \
        --thread <uuid> \
        --worktree <你> \
        --set status=waiting_review \
@@ -57,7 +57,7 @@ enter(cwd = <worktree>)
      ```
    - 若任务顶层 `status == "planned"` 且本次是第一个进入 working 的 worktree:
      ```bash
-     bun run ~/.claude/skills/kanban/scripts/update-task.ts \
+     bun run $SCRIPTS/update-task.ts \
        <uuid> set:status=in_progress
      ```
 4. **汇报**:
@@ -74,7 +74,7 @@ enter(cwd = <worktree>)
 
 写 `*-error.md` 说明问题,执行:
 - ```bash
-  bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+  bun run $SCRIPTS/agent-write.ts \
     --thread <uuid> \
     --worktree <你> \
     --set status=blocked \

@@ -46,7 +46,7 @@ enter
 3. **原子更新**:
    - approve（更新 developer 状态 + 写入 review 路径）:
      ```bash
-     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+     bun run $SCRIPTS/agent-write.ts \
        --thread <uuid> \
        --worktree <dev-name> \
        --set status=review_approved \
@@ -54,7 +54,7 @@ enter
      ```
    - 同时更新 reviewer 自己的 `pass` 和 `report`:
      ```bash
-     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+     bun run $SCRIPTS/agent-write.ts \
        --thread <uuid> \
        --worktree <reviewer-name> \
        --set pass='["<dev-name>"]' \
@@ -62,7 +62,7 @@ enter
      ```
    - reject（更新 developer 状态 + 写入 review 路径）:
      ```bash
-     bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+     bun run $SCRIPTS/agent-write.ts \
        --thread <uuid> \
        --worktree <dev-name> \
        --set status=review_rejected \
@@ -85,17 +85,17 @@ enter
 - 让 test 接力;test 通过后由 test(或 reviewer 终审)推顶层 `status = done`
 - 若没有 test 条目(极少数情况),reviewer 可将各 developer 设为 `done`:
   ```bash
-  bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+  bun run $SCRIPTS/agent-write.ts \
     --thread <uuid> --worktree <dev-name> --set status=done
   ```
   然后更新 reviewer 自身:
   ```bash
-  bun run ~/.claude/skills/kanban/scripts/agent-write.ts \
+  bun run $SCRIPTS/agent-write.ts \
     --thread <uuid> --worktree <reviewer-name> --set status=done
   ```
   最后收尾任务:
   ```bash
-  bun run ~/.claude/skills/kanban/scripts/update-task.ts \
+  bun run $SCRIPTS/update-task.ts \
     <uuid> set:status=done
   ```
 

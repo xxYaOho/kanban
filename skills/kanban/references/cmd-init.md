@@ -41,7 +41,7 @@
 ## 实现脚本
 
 ```bash
-bun run ~/.claude/skills/kanban/scripts/init.ts [--reset|--skip|--migrate]
+bun run $SCRIPTS/init.ts [--reset|--skip|--migrate]
 ```
 
 脚本内部做 Bun 版本检查 + 依赖检查 + 目录存在性检查 + 迁移检测。AskUserQuestion 由 Agent 层承担,脚本只接收已决策的参数。

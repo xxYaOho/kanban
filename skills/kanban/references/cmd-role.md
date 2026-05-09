@@ -248,7 +248,7 @@ Plan 对应节: ## <匹配节标题>    (若 plan.md 存在)
 ## 实现脚本
 
 ```bash
-bun run ~/.claude/skills/kanban/scripts/role.ts \
+bun run $SCRIPTS/role.ts \
   --worktree <name> \
   --role <role> \
   --brief <brief> \
