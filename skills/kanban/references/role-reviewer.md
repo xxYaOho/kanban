@@ -78,6 +78,20 @@ enter
      - 若所有 dev worktree approved,通知 test 上场
    ```
 
+## MANDATORY COMPLETION CHECKLIST (Standard Review)
+
+---
+
+对于每个 `waiting_review` 的 developer 条目，在对话中汇报 verdict 之前，**必须**完成以下全部步骤：
+
+1. **读 dev report 文件**：`~/.kanban/<repo>/<uuid>/report-<dev>-<NN>.md`
+2. **拉取该 developer 的分支代码，查看 diff**
+3. **写 review 文件到磁盘**：`~/.kanban/<repo>/<uuid>/review-<dev>-<NN>.md`，模板见 `references/frontmatter-templates.md` 的 `review` 模板
+4. **原子更新 kanban 状态**（approve 或 reject，按上方命令执行）
+
+> 对话中的评审意见不是交付。磁盘上的 review 文件才是正式记录。
+> 其他 Agent（developer、test、integrator）只能通过文件系统读取你的评审结果。
+
 ## 推进任务
 
 当**所有** developer 条目都进入 `review_approved`:
@@ -98,6 +112,34 @@ enter
   bun run $SCRIPTS/update-task.ts \
     <uuid> set:status=done
   ```
+
+## 非标准评审：Plan Review
+
+当被要求评审 `plan.md`、设计文档或其他不在 `waiting_review` 标准流程中的内容时，按以下协议操作。
+
+### 流程
+
+1. **读取目标文档**：定位并读取 plan.md（路径在任务对象的 `plan` 字段中）
+2. **分析评审**：评估可行性、完整性、清晰度、风险点
+3. **写 plan review 文件到磁盘**：
+   - 文件名：`~/.kanban/<repo>/<uuid>/plan-review-<NN>.md`
+   - NN 递增（01, 02, 03），与 developer review 序列独立
+   - 模板：`references/frontmatter-templates.md` 的 `plan-review` 模板
+4. **原子更新 kanban 状态**（更新 reviewer 自身）：
+   ```bash
+   bun run $SCRIPTS/agent-write.ts \
+     --thread <uuid> \
+     --worktree <reviewer名> \
+     --set status=done \
+     --set report=plan-review-<NN>.md
+   ```
+5. **汇报**：标准模板 + verdict
+
+### 注意事项
+
+- 计划评审不影响任何 developer 条目的 `status`
+- `plan-review-<NN>.md` 的 NN 编号独立于 `review-<dev>-<NN>.md`
+- 若 reviewer 的 `report` 字段已有值（如之前的 review-summary），本次更新会覆盖。旧文件仍在磁盘上
 
 ## 禁忌
 

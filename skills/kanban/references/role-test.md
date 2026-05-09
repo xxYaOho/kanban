@@ -87,6 +87,19 @@ enter(cwd = <test-worktree>)
       Report: test-01.md
    ```
 
+## MANDATORY COMPLETION CHECKLIST
+
+---
+
+在对话中汇报 test verdict 之前，**必须**完成以下全部步骤：
+
+1. **验证前置条件**：所有 developer worktree 处于 `review_approved` 状态
+2. **运行集成测试**：merge / rebase 各 dev 分支，运行测试套件
+3. **写 test report 文件到磁盘**：`~/.kanban/<repo>/<uuid>/test-<NN>.md`，模板见 `references/frontmatter-templates.md` 的 `test-report` 模板
+4. **原子更新 kanban 状态**（pass 或 fail，按上方命令执行）
+
+> 不写 test report 文件 = 测试结果不存在。对话中的结论不能替代文件记录。
+
 ## 禁忌
 
 - ❌ 在前置条件不满足时开工(产生噪声,浪费一轮)

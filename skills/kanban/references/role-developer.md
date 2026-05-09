@@ -68,6 +68,39 @@ enter(cwd = <worktree>)
    下一步:等 reviewer。可切到其他 worktree 继续。
    ```
 
+## MANDATORY COMPLETION CHECKLIST
+
+---
+
+在对话中报告 `waiting_review` 之前，**必须**完成以下全部步骤。漏掉任何一步 = 工作未交付。对话文本是临时的，其他 Agent 看不到。
+
+1. **Commit 代码**
+   ```bash
+   git add -A && git commit -m "feat(<scope>): <description>"
+   ```
+   commit 到当前 worktree 分支。如需 reviewer 远程拉取 diff，可 push 自己的分支，但**禁止**推 main/master。
+
+2. **写 dev report 文件到磁盘**
+   路径：`~/.kanban/<repo>/<uuid>/report-<worktree>-<NN>.md`
+   模板：`references/frontmatter-templates.md` 的 `dev-report` 模板
+
+3. **原子更新 kanban 状态**
+   ```bash
+   bun run $SCRIPTS/agent-write.ts \
+     --thread <uuid> \
+     --worktree <你> \
+     --set status=waiting_review \
+     --set report=~/.kanban/<repo>/<uuid>/report-<你>-<NN>.md \
+     --set error=null
+   ```
+   若任务顶层 `status == "planned"` 且本次是第一个进入 working 的 worktree：
+   ```bash
+   bun run $SCRIPTS/update-task.ts <uuid> set:status=in_progress
+   ```
+
+> 第 2 步和第 3 步顺序不能颠倒：先写文件，再更新 kanban 指向它。
+> 跳过任何一步 = 工作未交付，不要说自己"做完了"。
+
 ## 异常路径
 
 ### 实现卡住 / 需要决策

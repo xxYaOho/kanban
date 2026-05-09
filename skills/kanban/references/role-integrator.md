@@ -79,6 +79,20 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
       Status: working → done
    ```
 
+## MANDATORY COMPLETION CHECKLIST
+
+---
+
+在对话中报告 integration `done` 之前，**必须**完成以下全部步骤：
+
+1. **验证前置条件**：所有 developer worktree test 通过，无 blocked 状态
+2. **创建集成分支并合并**：`git checkout -b integration/<tag>-attempt-<NN> main`，逐个合并功能分支
+3. **运行完整回归测试套件**
+4. **写 integration report 文件到磁盘**：`~/.kanban/<repo>/<uuid>/integration-<NN>.md`，模板见 `references/frontmatter-templates.md` 的 `integration-report` 模板
+5. **原子更新 kanban 状态**（按上方命令执行：更新自身 done，更新各 dev merged，更新任务顶层 done）
+
+> 不写 integration report = 集成未发生。所有证据必须在文件系统中。
+
 ## 异常路径
 
 ### 语义冲突无法自行判断

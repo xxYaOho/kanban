@@ -73,6 +73,46 @@ approve(或 reject,并列要改的点)
 - 对整体实现的观察
 ```
 
+## plan-review
+
+文件:`plan-review-<NN>.md`
+
+```markdown
+---
+kind: plan-review
+uuid: 019d9b9f-...
+reviewer_worktree: review
+role: reviewer
+attempt: 1
+created: 2026-04-18T14:30:00+08:00
+verdict: approve                      # approve | changes_requested
+related_plan: ~/.kanban/wave/019d9b9f.../plan.md
+---
+
+# Plan Review — attempt NN
+
+## Verdict
+approve（或 changes_requested，并列需修改的点）
+
+## Summary
+- 一句话结论
+
+## Checklist
+- [ ] 目标明确，范围合理
+- [ ] 技术方案可行
+- [ ] 风险已识别并有缓解措施
+- [ ] 工作量估算合理
+- [ ] 依赖与前置条件已列明
+
+## Findings
+- 发现 1：……
+- 发现 2：……
+
+## Suggestions
+- 建议 1：……
+- 建议 2：……
+```
+
 ## test-report
 
 文件:`test-<NN>.md`

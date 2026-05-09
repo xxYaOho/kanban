@@ -98,6 +98,25 @@ bun run $SCRIPTS/<script>.ts [args...]
 - `reviewer` 不绑定 worktree，注册时 `cwd = null`；`developer` 需要在 worktree 中注册
 - `~/.kanban/.locks/` 下的文件由 `proper-lockfile` 自动管理，手动增删会导致锁库误判 stale lock
 
+## 持久化原则
+
+所有工作产出必须持久化到文件系统。对话文本是临时的，不视为交付。
+
+- 代码变更必须 `git commit`（本地提交到 worktree 分支）。push 行为按角色：
+  - Developer：push 限自己的 feature 分支，禁止推 main/master
+  - Integrator：唯一有权合并分支并 push 到 main/master
+  - Reviewer / Test：不产生代码变更，只拉取 diff 阅读
+- 报告文件必须写入 `~/.kanban/<repo>/<uuid>/`：
+  - dev report → `report-<worktree>-<NN>.md`
+  - review → `review-<dev>-<NN>.md`
+  - plan review → `plan-review-<NN>.md`
+  - test report → `test-<NN>.md`
+  - integration report → `integration-<NN>.md`
+- Kanban 状态更新必须经过 `agent-write.ts`（Agent 领域字段）或 `update-task.ts`（人工领域字段）
+- 仅靠对话告知"做完了"不够 —— 其他 Agent 和工作流环节只能通过文件系统读取结果
+
+任何 Agent 在报告状态变更（`waiting_review`、`done` 等）之前，必须先完成对应的文件写入和 kanban 状态更新。
+
 ## 子命令索引
 
 | 命令 | Reference |
