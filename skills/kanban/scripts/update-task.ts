@@ -12,7 +12,6 @@
  *
  * stdout: JSON { ok, diff, newStatus }
  */
-import { existsSync, statSync } from "fs";
 import { withKanbanLock } from "./kanban-lock";
 import {
   resolveUuid,
@@ -21,7 +20,7 @@ import {
   type TaskStatus,
   VALID_TASK_STATUSES,
 } from "./kanban-io";
-import { fromKanbanRel } from "./paths";
+import { validatePromotableTask } from "./multi-plan";
 
 const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
 type RoleKey = (typeof ROLE_KEYS)[number];
@@ -117,29 +116,50 @@ function validatePath(path: string): { top?: string; roleEntry?: { role: RoleKey
   throw new Error(`未知或禁止修改的字段: ${path}`);
 }
 
-function validatePromotable(task: Task): string[] {
-  const errs: string[] = [];
-  const planAbs = fromKanbanRel(task.plan);
-  if (!existsSync(planAbs)) {
-    errs.push(`plan 文件不存在: ${task.plan}`);
-  } else if (statSync(planAbs).size === 0) {
-    errs.push(`plan 文件为空: ${task.plan}`);
-  }
-  const allNames = ROLE_KEYS.flatMap((rk) => Object.keys(task[rk] ?? {}));
-  if (allNames.length === 0) errs.push("所有 role 条目为空,需至少一个条目");
-  for (const rk of ROLE_KEYS) {
-    const entries = task[rk] ?? {};
-    for (const [name, entry] of Object.entries(entries)) {
-      if (!entry.brief || !String(entry.brief).trim()) {
-        errs.push(`${rk}.${name}.brief 未填写`);
-      }
-    }
-  }
-  return errs;
-}
-
 function getRoleEntries(task: Task, role: RoleKey): Record<string, any> {
   return (task as any)[role] ?? {};
+}
+
+function isClaimedEntry(entry: any): boolean {
+  return (entry?.attempt ?? 0) > 0 || entry?.status !== "idle";
+}
+
+function assertCanEditBrief(task: Task, role: RoleKey, name: string, entry: any): void {
+  if (isClaimedEntry(entry)) {
+    throw new Error(
+      `${role}.${name} 已被认领(status=${entry.status}, attempt=${entry.attempt ?? 0}),不允许修改 brief。`,
+    );
+  }
+  if (["done", "archived", "aborted"].includes(task.status)) {
+    throw new Error(`当前 status=${task.status},不允许修改 role brief。`);
+  }
+}
+
+function assertCanAddEntry(task: Task, entryStatus: string): void {
+  if (task.status === "draft" || task.status === "planned") return;
+  if (task.status === "in_progress" && entryStatus === "idle") return;
+  throw new Error(`当前 status=${task.status},不允许新增条目。仅 draft/planned 或 in_progress 追加 idle 条目允许。`);
+}
+
+function assertCanChangeStatus(before: Task, nextStatus: TaskStatus): void {
+  if (before.status === "in_progress" && nextStatus === "planned") {
+    throw new Error("当前 status=in_progress,不允许回退到 planned。");
+  }
+}
+
+function assertCanDeleteEntry(task: Task, role: RoleKey, name: string, entry: any): void {
+  if (task.status === "draft" || task.status === "planned") {
+    if (isClaimedEntry(entry)) {
+      throw new Error(
+        `${role}.${name} 已被认领(status=${entry.status}, attempt=${entry.attempt ?? 0}),不允许删除。`,
+      );
+    }
+    return;
+  }
+  if (task.status === "in_progress") {
+    throw new Error(`当前 status=in_progress,不允许删除已有条目。`);
+  }
+  throw new Error(`当前 status=${task.status},不允许删除条目。`);
 }
 
 async function main() {
@@ -162,7 +182,6 @@ async function main() {
     if (!task) throw new Error(`找不到任务: ${uuid}`);
 
     const before = JSON.parse(JSON.stringify(task)) as Task;
-    const structuralAllowed = task.status === "draft" || task.status === "planned";
 
     for (const op of ops) {
       if (op.kind === "set") {
@@ -170,6 +189,7 @@ async function main() {
         if (pv.top) {
           if (pv.top === "status") {
             if (!_validStatusSet.has(op.value)) throw new Error(`非法 status: ${op.value}`);
+            assertCanChangeStatus(task, op.value as TaskStatus);
             task.status = op.value as TaskStatus;
           } else if (pv.top === "draft") {
             task.draft = op.value.trim() === "" ? null : op.value;
@@ -182,30 +202,27 @@ async function main() {
           const { role, name, field } = pv.roleEntry;
           const entries = getRoleEntries(task, role);
           if (!entries[name]) throw new Error(`${role}.${name} 不存在`);
+          assertCanEditBrief(task, role, name, entries[name]);
           entries[name][field] = op.value;
         }
       } else if (op.kind === "add") {
-        if (!structuralAllowed) {
-          throw new Error(`当前 status=${task.status},不允许新增条目。仅在 draft/planned 允许。`);
-        }
         const entries = getRoleEntries(task, op.role);
         if (entries[op.name]) throw new Error(`${op.role}.${op.name} 已存在`);
         const newEntry: Record<string, unknown> = { status: "idle", brief: op.brief, attempt: 0 };
+        assertCanAddEntry(task, String(newEntry.status));
         if (op.blocked_on) newEntry.blocked_on = op.blocked_on;
         entries[op.name] = newEntry;
       } else if (op.kind === "del") {
-        if (!structuralAllowed) {
-          throw new Error(`当前 status=${task.status},不允许删除条目。`);
-        }
         const entries = getRoleEntries(task, op.role);
         if (!entries[op.name]) throw new Error(`${op.role}.${op.name} 不存在`);
+        assertCanDeleteEntry(task, op.role, op.name, entries[op.name]);
         delete entries[op.name];
       }
     }
 
     // status → planned 校验
     if (before.status !== task.status && task.status === "planned") {
-      const errs = validatePromotable(task);
+      const errs = validatePromotableTask(task);
       if (errs.length > 0) {
         throw new Error(
           "无法提升 status → planned,缺失以下项:\n  - " + errs.join("\n  - "),

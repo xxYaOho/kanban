@@ -8,6 +8,7 @@
 /kanban --new                          # Claude 从当前对话抽取计划
 /kanban --new @docs/plan.md            # 用户通过 @ 引用了文件
 /kanban --new "~/path/to/plan.md"      # 用户提供了文件路径字符串
+/kanban --new multi-plan               # 创建可渐进扩展的 multi-plan 索引草案
 /kanban --new                          # 对话里没有计划 → 询问是否创建空白看板
 ```
 
@@ -17,6 +18,13 @@
 
 ```
 /kanban --new 被触发
+│
+├─ $ARGUMENTS 明确包含 "multi-plan" 且未给出实际计划文件?
+│   └─ 是 → 【来源 D: multi-plan 索引草案】
+│           - 创建主 plan.md 索引
+│           - status=draft
+│           - worktree={}
+│           - 后续每确认一个子计划再追加 plan-<slug>.md + idle role 条目
 │
 ├─ $ARGUMENTS 或对话中有文件引用(@file)或路径字符串?
 │   └─ 是 → 【来源 B: 文件导入】
@@ -65,10 +73,27 @@
 | A 对话抽取 | `planned`            | 从对话整理出的完整 plan       | 按对话划分填充        |
 | B 文件导入 | `planned` 或 `draft` | 拷贝自引用文件                | 尝试解析,失败则空    |
 | C 空白看板 | `draft`              | 占位("# desc\n\n(待完善)")   | `{}`                  |
+| D multi-plan 索引草案 | `draft` | 索引式主 `plan.md`,暂不含实际子计划 | `{}` |
 
 **文件拷贝策略**:来源 B 将文件**拷贝**进 `~/.kanban/…/plan.md`,不保留软链接。原文件不动,kanban 自足。
 
-**索引式 multi-plan**:若导入的 `plan.md` 包含同目录相对链接 `./plan-*.md`,视为索引式计划结构。脚本在复制主计划时同步复制这些子计划到同一任务目录。链接指向的子计划不存在时,先报错并让用户修正计划文件,不得创建半残任务。只复制主计划同目录的一层 `plan-*.md`,不递归复制其他 Markdown 链接。
+**索引式 multi-plan**:若导入的 `plan.md` 包含同目录相对链接 `./plan-*.md`,或主计划明确标记 `multi-plan`,视为索引式计划结构。脚本在复制主计划时同步复制这些子计划到同一任务目录。链接指向的子计划不存在时,先报错并让用户修正计划文件,不得创建半残任务。只复制主计划同目录的一层 `plan-*.md`,不递归复制其他 Markdown 链接。
+
+### Multi-plan 渐进扩展协议
+
+multi-plan thread 的状态不是"全部子计划完成后才 planned":
+
+- `draft`: 只有主索引或讨论内容,尚无实际 `plan-*.md` 子计划。
+- `planned`: 至少一个实际 `plan-*.md` 子计划已确认并落盘,且有对应 idle role 条目。
+- `in_progress`: 至少一个 developer 席位被认领/开工。
+
+新增子计划流程:
+
+1. 写入 `~/.kanban/<repo>/<uuid>/plan-<slug>.md`。
+2. 更新主 `plan.md` 索引,追加 `./plan-<slug>.md` 链接、目标、执行顺序或依赖说明。
+3. 通过 `/kanban --update <uuid> add:<role>:<name>:'{"brief":"..."}'` 添加对应 idle 席位。
+4. 若这是第一个子计划,再执行 `/kanban --update <uuid> set:status=planned`。
+5. 若 thread 已是 `in_progress`,仍允许执行第 1-3 步继续追加；`in_progress` 不是计划冻结状态。
 
 ## 预分配席位智能分析
 
@@ -153,12 +178,13 @@ bun run $SCRIPTS/new-task.ts \
   [--plan-content-file <path>]   # extract 模式:Agent 把整理好的 plan 写临时文件
   [--plan-file <path>]           # fromFile 模式:原始文件路径
   [--draft-ref <path>]           # 可选:原始需求草稿路径
+  [--multi-plan]                 # 可选:创建 multi-plan 索引草案
   [--worktrees-json '<json>']    # 可选:worktree 字典,developer 可含 blocked_on
 ```
 
 `--worktrees-json` 中 developer 条目可含 `blocked_on` 字段（值为同任务其他 developer 的名称）。脚本自动校验链完整性（目标存在、无自引用、无环形依赖），校验失败则拒绝写入。
 
-fromFile 模式若识别到索引式 multi-plan,stdout 的 JSON 会包含 `subPlans: ["~/.kanban/.../plan-a.md", ...]`。
+fromFile 模式若识别到索引式 multi-plan,stdout 的 JSON 会包含 `subPlans: ["~/.kanban/.../plan-a.md", ...]`。`--multi-plan --mode blank` 创建 `draft` 索引草案,stdout 的 `isMultiPlan` 为 `true`。
 
 ## 汇报模板
 
@@ -189,6 +215,20 @@ Plan:   ~/.kanban/wave/019d9b9f.../plan.md (占位)
 提示:
   /kanban --update 019d9b9f               # 逐项完善
   /kanban --update 019d9b9f status=planned # 校验并发布
+```
+
+**multi-plan 索引草案(draft)**:
+```
+📝 Multi-plan 索引已创建 [draft]
+UUID:   019d9b9f-...
+Short:  019d9b9f
+Repo:   wave
+Plan:   ~/.kanban/wave/019d9b9f.../plan.md
+下一步:
+  1. 写入 ~/.kanban/wave/019d9b9f.../plan-<slug>.md
+  2. 在 plan.md 索引中添加 ./plan-<slug>.md
+  3. /kanban --update 019d9b9f add:developer:<name>:'{"brief":"对应 plan-<slug>.md"}'
+  4. /kanban --update 019d9b9f status=planned
 ```
 
 ## 边界情况

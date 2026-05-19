@@ -16,7 +16,15 @@ UUID 允许短前缀(≥6),多候选时列表让用户选。
 **允许改**:
 - 顶层:`status` / `description` / `plan` / `draft` / `repo`
 - role 条目 brief:`developer.<name>.brief` / `reviewer.<name>.brief` / `test.<name>.brief` / `integrator.<name>.brief`
-- 新增/删除整个 role 条目(仅当 `status ∈ { draft, planned }`;`in_progress` 及之后不允许结构性改动)
+- 新增整个 role 条目:
+  - `draft` / `planned`:允许新增 idle 条目
+  - `in_progress`:允许追加新的 idle 条目,用于 multi-plan 继续扩展
+- 删除整个 role 条目:
+  - 仅 `draft` / `planned` 且条目未认领(`status=idle && attempt=0`)时允许
+  - `in_progress` 禁止删除已有条目
+- 修改 role 条目 brief:
+  - 未认领条目(`status=idle && attempt=0`)允许修改
+  - 已认领条目(`attempt > 0` 或 `status != idle`)禁止修改
 
 **拒绝改**(Agent 领域,由角色 Agent 工作中自动写):
 - `<role>.<name>.status / review / report / attempt / error / blocked_on / pass / fail / merged / conflicts`
@@ -38,7 +46,7 @@ UUID 允许短前缀(≥6),多候选时列表让用户选。
 
 - `plan` 字段在本次 update 中被修改
 - 任务尚未进入 `in_progress`（即 status 为 draft 或 planned）
-- 不触发：任务已在执行中（席位已被认领，结构调整会丢失状态）
+- 不触发：任务已在执行中（席位已被认领，结构调整会丢失状态）。multi-plan 的执行中追加子计划不走整体席位重评估,只允许追加新的 idle 条目
 
 ### 流程
 
@@ -66,7 +74,7 @@ UUID 允许短前缀(≥6),多候选时列表让用户选。
 
 4. 用户选择处理：
    - 选 (a) → 使用 `del:` + `add:` ops 重建席位结构：
-     - 删除所有旧 developer 条目（仅在均 idle + attempt=0 时可操作）
+     - 删除所有旧 developer 条目（仅在均 idle + attempt=0 且任务未进入 `in_progress` 时可操作）
      - 按新分析结果创建 developer 条目（add op 支持 `blocked_on`）
      - 非 developer 角色（reviewer/test/integrator）不受影响
    - 选 (b) → 仅保存 plan，席位不变，diff 底部追加 `⚠️ 席位未随 plan 调整，可能存在不匹配`
@@ -237,6 +245,8 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 
 从现有 role 条目列表多选。被选中的条目将在 diff 阶段确认后删除。
 
+若任务已是 `in_progress`,删除入口不可选。若条目已认领(`attempt > 0` 或 `status != idle`),即使任务仍是 `draft/planned` 也不可删除。
+
 ### 3. diff 展示 + 二次确认
 
 ```
@@ -259,11 +269,17 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 - `plan` 文件存在且非空字节
 - 至少一个 role 条目
 - 每个 role 条目有非空 `brief`
+- 若是 multi-plan 索引:
+  - 主 `plan.md` 非空
+  - 至少一个实际 `plan-*.md` 子计划存在
+  - 主 `plan.md` 中引用的 `./plan-*.md` 必须存在
+  - 至少一个 role 条目对应某个子计划
 
 不满足则拒绝写入,列出缺失项:
 ```
 ❌ 无法提升 status → planned,缺失以下项:
   - plan 文件为空: ~/.kanban/wave/019d9b9f.../plan.md
+  - multi-plan 需要至少一个实际 plan-*.md 子计划
   - developer.dev-serve.brief 未填写
 ```
 
@@ -274,6 +290,7 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 /kanban --update 019d9b9f draft="~/docs/requirements-v1.md"
 /kanban --update 019d9b9f developer.dev-serve.brief="重构命令解析器"
 /kanban --update 019d9b9f add:reviewer:review:'{"brief":"统一 review"}'
+/kanban --update 019d9b9f add:developer:plan-export:'{"brief":"实现 plan-export 子计划,对应 plan-export.md"}'
 /kanban --update 019d9b9f del:developer:obsolete
 ```
 
@@ -303,6 +320,7 @@ Agent 负责把交互式选择翻译成这些 op,再调脚本。
 
 - 删除 `status=idle, attempt=0` 的条目是安全的——这是未被认领的预分配席位，无工作历史
 - 删除 `status` 非 idle 或 `attempt > 0` 的条目会丢失该 worktree 的工作历史（report、review 等文件不会被删除，但 kanban 中的状态追踪会断裂）
+- `in_progress` 下禁止删除任何已有条目；multi-plan 追加新子计划时只能新增 idle 条目
 - 若目的是将预分配席位映射到真实 cwd，优先使用 `/kanban --role` 的认领机制，而非先删后建
 
 ## 撤销

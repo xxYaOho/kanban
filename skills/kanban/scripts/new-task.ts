@@ -11,17 +11,24 @@
  *   --plan-ref <path>            引用已有 plan 文件
  *   --draft-ref <path>           可选:原始需求草稿路径
  *   --worktrees-json <json>      可选:role 条目字典 JSON
+ *   --multi-plan                 可选:创建可渐进扩展的 multi-plan 索引草案
  *
  * stdout: JSON { uuid, short, dir, planTarget, status }
  */
-import { mkdir, writeFile, copyFile, stat, readFile } from "fs/promises";
+import { mkdir, writeFile, copyFile, readFile } from "fs/promises";
 import { existsSync } from "fs";
 import { randomUUID } from "crypto";
-import { basename, dirname, resolve } from "path";
+import { dirname, resolve } from "path";
 import { withKanbanLock } from "./kanban-lock";
 import { waveDir, toKanbanRel } from "./paths";
 import type { Task, DevEntry, ReviewerEntry, TestEntry, IntegratorEntry } from "./kanban-io";
 import { nowIso } from "./kanban-io";
+import {
+  buildMultiPlanIndex,
+  extractLinkedSubPlans,
+  isMultiPlanContent,
+  validatePromotableTask,
+} from "./multi-plan";
 
 type Mode = "extract" | "fromFile" | "blank";
 type RoleKey = "developer" | "reviewer" | "test" | "integrator";
@@ -35,6 +42,7 @@ interface Args {
   planRef?: string;
   draftRef?: string;
   worktreesJson?: string;
+  multiPlan?: boolean;
 }
 
 interface CopiedPlanFile {
@@ -56,6 +64,7 @@ function parseArgs(argv: string[]): Args {
       case "--plan-ref": a.planRef = v; i++; break;
       case "--draft-ref": a.draftRef = v; i++; break;
       case "--worktrees-json": a.worktreesJson = v; i++; break;
+      case "--multi-plan": a.multiPlan = true; break;
     }
   }
   if (!a.mode || !a.repo || !a.description) {
@@ -182,23 +191,6 @@ function validateDevChains(devs: Record<string, Partial<DevEntry>>): Record<stri
   return chains;
 }
 
-function extractLinkedSubPlans(markdown: string): string[] {
-  const matches = new Set<string>();
-  const linkPattern = /!?\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-  for (const match of markdown.matchAll(linkPattern)) {
-    const rawTarget = match[1]?.trim();
-    if (!rawTarget) continue;
-    const withoutFragment = rawTarget.split("#")[0];
-    if (/^[a-z][a-z0-9+.-]*:/i.test(withoutFragment)) continue;
-    if (!withoutFragment.startsWith("./")) continue;
-    const filename = basename(withoutFragment);
-    if (withoutFragment === `./${filename}` && /^plan-[^/\\]+\.md$/i.test(filename)) {
-      matches.add(filename);
-    }
-  }
-  return [...matches].sort();
-}
-
 async function copyLinkedSubPlans(srcPlan: string, targetDir: string): Promise<CopiedPlanFile[]> {
   const content = await readFile(srcPlan, "utf-8");
   const linkedSubPlans = extractLinkedSubPlans(content);
@@ -228,32 +220,41 @@ async function main() {
   await mkdir(dir, { recursive: true });
   let planPath: string;
   let copiedSubPlans: CopiedPlanFile[] = [];
+  let isMultiPlan = Boolean(args.multiPlan);
 
   if (args.planRef) {
     const ref = resolve(args.planRef).replace(/^\/Users\/[^/]+/, "~");
     if (!existsSync(resolve(args.planRef))) throw new Error(`--plan-ref 不存在: ${args.planRef}`);
+    const content = await readFile(resolve(args.planRef), "utf-8");
+    isMultiPlan = isMultiPlan || isMultiPlanContent(content);
     planPath = ref;
   } else {
     if (args.mode === "fromFile") {
       if (!args.planFile) throw new Error("fromFile 模式必须传 --plan-file");
       const src = resolve(args.planFile);
       if (!existsSync(src)) throw new Error(`--plan-file 不存在: ${src}`);
+      const content = await readFile(src, "utf-8");
+      isMultiPlan = isMultiPlan || isMultiPlanContent(content);
       await copyFile(src, planTarget);
       copiedSubPlans = await copyLinkedSubPlans(src, dir);
       planPath = toKanbanRel(planTarget);
     } else if (args.mode === "extract") {
       if (!args.planContentFile) throw new Error("extract 模式必须传 --plan-content-file");
       const content = await readFile(resolve(args.planContentFile), "utf-8");
+      isMultiPlan = isMultiPlan || isMultiPlanContent(content);
       await writeFile(planTarget, content, "utf-8");
       planPath = toKanbanRel(planTarget);
     } else {
-      await writeFile(planTarget, `# ${args.description}\n\n(待完善)\n`, "utf-8");
+      const content = isMultiPlan
+        ? buildMultiPlanIndex(args.description)
+        : `# ${args.description}\n\n(待完善)\n`;
+      await writeFile(planTarget, content, "utf-8");
       planPath = toKanbanRel(planTarget);
     }
   }
 
   const isBlank = args.mode === "blank";
-  const status = isBlank ? "draft" : "planned";
+  const status = isBlank || (isMultiPlan && copiedSubPlans.length === 0 && !args.planRef) ? "draft" : "planned";
 
   let worktrees = normalizeWorktrees(
     args.worktreesJson ? JSON.parse(args.worktreesJson) : {},
@@ -261,18 +262,25 @@ async function main() {
 
   const blockedOnChains = validateDevChains(worktrees.developer);
 
-  // planned 校验
-  if (status === "planned" && !args.planRef) {
-    const planStat = await stat(planTarget);
-    if (planStat.size === 0) throw new Error("planned 状态要求 plan.md 非空");
-    const planContent = await readFile(planTarget, "utf-8");
-    if (planContent.trim().length === 0) throw new Error("planned 状态要求 plan.md 内容非空白");
-  }
-  const allNames = Object.values(worktrees).flatMap((r) => Object.keys(r));
-  if (status === "planned" && allNames.length === 0) {
-    throw new Error(
-      "planned 状态要求至少一个 role 条目。若暂时没想好,改走 blank 模式",
-    );
+  if (status === "planned") {
+    const taskForValidation: Task = {
+      status,
+      repo: args.repo,
+      description: args.description,
+      draft: args.draftRef ?? null,
+      plan: planPath,
+      created: nowIso(),
+      developer: worktrees.developer as Record<string, DevEntry>,
+      reviewer: worktrees.reviewer as Record<string, ReviewerEntry>,
+      test: worktrees.test as Record<string, TestEntry>,
+      integrator: worktrees.integrator as Record<string, IntegratorEntry>,
+    };
+    const errs = validatePromotableTask(taskForValidation);
+    if (errs.length > 0) {
+      throw new Error(
+        "planned 状态校验失败:\n  - " + errs.join("\n  - "),
+      );
+    }
   }
 
   await withKanbanLock(async (kanban) => {
@@ -301,6 +309,7 @@ async function main() {
         dir,
         planTarget: args.planRef ? planPath : toKanbanRel(planTarget),
         subPlans: copiedSubPlans.map((p) => toKanbanRel(p.target)),
+        isMultiPlan,
         status,
         entries: Object.fromEntries(
           (["developer", "reviewer", "test", "integrator"] as const).map(

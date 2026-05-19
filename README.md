@@ -42,6 +42,14 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 
    Claude 从计划文件自动解析 worktree 划分，生成 `kanban.json` 条目与 `plan.md`。
 
+   需要渐进拆分时，可先创建 multi-plan 索引草案：
+
+   ```
+   /kanban --new multi-plan
+   ```
+
+   每确认一个子计划后，追加 `plan-<slug>.md` 和对应 idle 席位；第一个子计划落盘后即可提升到 `planned`，执行中也可继续追加新子计划。
+
 2. **分配角色**
 
    在各 worktree 中执行 `/kanban --role developer` 等，Agent 自动登记身份并加载对应角色手册。

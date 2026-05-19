@@ -91,14 +91,28 @@
 
 ### 任务级
 
-- `draft`：占位。`plan` 可为占位文件，条目可为空。**Agent 不自动开工**
-- `planned`：`plan` 已定稿，至少一个角色有非空条目。可以开工
-- `in_progress`：任意 role 条目的 `status` 进入 `working`
+- `draft`：占位或 multi-plan 索引草案。普通任务可只有占位 `plan`；multi-plan 表示尚无实际 `plan-*.md` 子计划。**Agent 不自动开工**
+- `planned`：已有可执行计划。普通任务要求 `plan` 已定稿且至少一个角色有非空条目；multi-plan 要求至少一个实际 `plan-*.md` 子计划已确认并落盘,且有对应角色条目。可以开工
+- `in_progress`：任意 developer 席位被认领/开工。multi-plan 在此状态下**不是冻结状态**,仍可继续追加新的子计划和对应 idle 席位
 - `done` / `archived` / `aborted`：终态
 
 **`draft → planned` 提升校验**（`update-task.ts` 实现）：
 - `plan` 文件存在且非空
 - 至少一个角色有非空条目，每条有非空 `brief`
+- 若 `plan.md` 是 multi-plan 索引（含 `multi-plan` 标记或 `./plan-*.md` 链接）：
+  - 至少一个实际 `plan-*.md` 子计划存在于任务目录
+  - `plan.md` 中引用的 `./plan-*.md` 必须真实存在
+  - 至少一个 role 条目对应某个子计划（单子计划+单席位时视为对应）
+
+### Multi-plan 语义
+
+multi-plan 是可渐进扩展的 thread，而不是一次性冻结的大计划：
+
+1. `/kanban --new multi-plan` 创建 `draft` 索引任务，只落主 `plan.md`。
+2. 每确认一个子计划，写入 `plan-<slug>.md`，并在主 `plan.md` 索引中追加 `./plan-<slug>.md` 链接。
+3. 第一个实际子计划落盘且有对应 role 条目后，可将 thread 从 `draft` 提升为 `planned`。
+4. 任意 developer 认领席位后，thread 提升为 `in_progress`。
+5. `in_progress` 期间仍允许继续追加新的 `plan-*.md` 和新的 idle role 条目；不得删除已有条目，也不得改写已认领条目的 `brief`。
 
 ### 角色级
 
