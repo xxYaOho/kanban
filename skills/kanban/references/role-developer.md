@@ -1,20 +1,20 @@
 # Role: Developer
 
-当 skill 自动触发且 `worktree.<cwd>.role == "developer"` 时加载此文档。
+当 skill 自动触发且当前 cwd 匹配 `task.developer.<name>.cwd` 或条目 key 时加载此文档。
 
 ## 职责
 
-在分配给你的 worktree 里,按 `plan.md` + `worktree.<你>.action` 执行开发工作。完成或阶段性中断时写 **dev report**,原子更新 `worktree.<你>.status`。
+在分配给你的 worktree 里,按 `plan.md` + `developer.<你>.brief` 执行开发工作。若任务目录存在 `plan-*.md`,必须先读主 `plan.md`,再读与自己 brief/席位名对应的子计划。完成或阶段性中断时写 **dev report**,原子更新 `developer.<你>.status`。
 
 ## 工作循环
 
 ```
 enter(cwd = <worktree>)
 │
-├─ 读 task.worktree[<你>].status
+├─ 读 task.developer[<你>].status
 │
 ├─ status == "idle"
-│   └─ 读 plan.md + action 开工
+│   └─ 读 plan.md + brief + 对应 plan-*.md 开工
 │      → bun run agent-write.ts --thread <uuid> --worktree <你> --set status=working --set attempt=<current+1>
 │
 ├─ status == "working"
@@ -45,7 +45,9 @@ enter(cwd = <worktree>)
 1. **报告文件名**:`~/.kanban/<repo>/<uuid>/report-<worktree>-<NN>.md`
    - NN 用两位零填充,递增(01, 02, 03)
    - `NN = current_attempt`
-2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `dev-report` 模板
+2. **frontmatter + 正文**:先读 `references/frontmatter-templates.md` 的 `dev-report` 模板；实际写文件时优先使用 `assets/report-skeletons/dev-report.md`
+   - 若存在对应子计划,`related_plan` 指向该 `plan-*.md`
+   - 必要时在正文 Notes 里补充主计划路径
 3. **原子提交**(两条命令,顺序执行):
    - ```bash
      bun run $SCRIPTS/agent-write.ts \
@@ -82,7 +84,8 @@ enter(cwd = <worktree>)
 
 2. **写 dev report 文件到磁盘**
    路径：`~/.kanban/<repo>/<uuid>/report-<worktree>-<NN>.md`
-   模板：`references/frontmatter-templates.md` 的 `dev-report` 模板
+   模板：先读 `references/frontmatter-templates.md`，实际写文件优先用 `assets/report-skeletons/dev-report.md`
+   若有对应子计划，frontmatter 的 `related_plan` 指向对应 `plan-*.md`
 
 3. **原子更新 kanban 状态**
    ```bash

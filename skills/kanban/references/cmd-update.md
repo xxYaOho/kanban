@@ -15,18 +15,18 @@ UUID 允许短前缀(≥6),多候选时列表让用户选。
 
 **允许改**:
 - 顶层:`status` / `description` / `plan` / `draft` / `repo`
-- worktree:`worktree.<name>.role` / `worktree.<name>.action`
-- 新增/删除整个 `worktree.<name>` 条目(仅当 `status ∈ { draft, planned }`;`in_progress` 及之后不允许结构性改动)
+- role 条目 brief:`developer.<name>.brief` / `reviewer.<name>.brief` / `test.<name>.brief` / `integrator.<name>.brief`
+- 新增/删除整个 role 条目(仅当 `status ∈ { draft, planned }`;`in_progress` 及之后不允许结构性改动)
 
 **拒绝改**(Agent 领域,由角色 Agent 工作中自动写):
-- `worktree.<name>.status / review / test / report / attempt / error / blocked_on`
+- `<role>.<name>.status / review / report / attempt / error / blocked_on / pass / fail / merged / conflicts`
 - `created` / `updated`(系统维护)
 
 **越权拒绝话术**:
 ```
-❌ 字段 `worktree.dev-serve.status` 属于 Agent 自主字段,/kanban --update 不允许修改。
+❌ 字段 `developer.dev-serve.status` 属于 Agent 自主字段,/kanban --update 不允许修改。
    如需强制重置:
-   (a) 让该 worktree 的 Agent 重新运行并自检(推荐)
+   (a) 让该席位的 Agent 重新运行并自检(推荐)
    (b) 人工直接编辑 ~/.kanban/kanban.json(会破坏一致性,自行承担)
 ```
 
@@ -108,7 +108,7 @@ add:developer:<name>:{"brief":"...","blocked_on":"<other-dev-name>"}
 5. 无活跃任务 → 提示"当前无活跃任务",建议 `--new` 创建或 `--update <uuid> status=planned` 激活
 6. 终态任务(`done / archived / aborted`)不列入候选
 
-定位成功后,回显当前人工字段(status / description / plan / draft / repo / 所有 worktree 的 role+action)。
+定位成功后,回显当前人工字段(status / description / plan / draft / repo / 所有 role 条目的 brief)。
 
 ### 1. 问改哪些
 
@@ -118,10 +118,9 @@ AskUserQuestion 多选:
 - plan(plan.md 路径)
 - draft(原始需求草稿路径,可选)
 - repo
-- worktree.\<name\>.role(按现有 worktree 展开)
-- worktree.\<name\>.action
-- 新增 worktree 条目
-- 删除 worktree 条目
+- `<role>.<name>.brief`(按现有 role 条目展开)
+- 新增 role 条目
+- 删除 role 条目
 - 完成(保存并退出)
 
 ### 2. 对每个选中项采集新值
@@ -182,7 +181,7 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 **Agent 生成候选**:基于以下信息生成一条候选 description:
 - plan.md 内容(摘要关键词)
 - repo 名称
-- 当前 worktree 的 action 描述
+- 当前席位的 brief 描述
 
 候选要求:
 - 不超过 80 字符
@@ -213,27 +212,12 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 
 选择已有名称则直接使用;选 (c) 接受自由输入。新 repo 名称仅做目录命名校验(合法字符、非空)。
 
-#### `worktree.<name>.role`
+#### `<role>.<name>.brief`
 
-**列出合法角色及职责说明**:
-
-```
-可选角色:
-(a) developer  — 实现分配的任务
-(b) reviewer   — 审查 developer 交付
-(c) test       — 全面测试
-
-请选择:
-```
-
-**非法值容错**:同 `--role` 命令的角色校验逻辑 — 有高置信前缀/编辑距离匹配时在话术里点名猜测,否则列出全部合法值让用户重新选择。
-
-#### `worktree.<name>.action`
-
-**回显当前值**,基于 plan.md 内容推荐 1~2 个候选 action(复用 `--role` 的 context 追问逻辑),加自由输入:
+**回显当前值**,基于 plan.md 内容推荐 1~2 个候选 brief(复用 `--role` 的 context 追问逻辑),加自由输入:
 
 ```
-当前 action: "重构命令解析器"
+当前 brief: "重构命令解析器"
 
 根据 plan 内容,建议:
 (a) "重构命令解析器并补充单元测试"
@@ -242,16 +226,16 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 (d) 手动输入
 ```
 
-#### 新增 worktree
+#### 新增 role 条目
 
 依次采集:
-1. **name**:非空、与现有 worktree 不重名
-2. **role**:同上方 `worktree.<name>.role` 逻辑
-3. **action**:非空,同上方 `worktree.<name>.action` 逻辑(无当前值可回显,跳过"保持不变"选项)
+1. **role**:developer / reviewer / test / integrator
+2. **name**:非空、与同 role 下现有条目不重名
+3. **brief**:非空,同上方 `<role>.<name>.brief` 逻辑(无当前值可回显,跳过"保持不变"选项)
 
-#### 删除 worktree
+#### 删除 role 条目
 
-从现有 worktree 列表多选。被选中的条目将在 diff 阶段确认后删除。
+从现有 role 条目列表多选。被选中的条目将在 diff 阶段确认后删除。
 
 ### 3. diff 展示 + 二次确认
 
@@ -260,8 +244,8 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
   status:               draft → planned
   description:          "CLI v0.14 优化(草案)" → "CLI v0.14 优化"
   draft:                null → "~/docs/requirements-v1.md"
-  + worktree.dev-serve: { role: developer, action: "重构命令解析器" }
-  - worktree.obsolete
+  + developer.dev-serve: { brief: "重构命令解析器" }
+  - developer.obsolete
 ```
 用户选 `确认` / `取消` / `回到修改`。
 
@@ -273,14 +257,14 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 
 在锁内、写前执行:
 - `plan` 文件存在且非空字节
-- `worktree` 至少一个条目
-- 每个 worktree 有 `role ∈ {developer,reviewer,test,integrator}` 和非空 `action`
+- 至少一个 role 条目
+- 每个 role 条目有非空 `brief`
 
 不满足则拒绝写入,列出缺失项:
 ```
 ❌ 无法提升 status → planned,缺失以下项:
   - plan 文件为空: ~/.kanban/wave/019d9b9f.../plan.md
-  - worktree.dev-serve.action 未填写
+  - developer.dev-serve.brief 未填写
 ```
 
 ## 快捷形态
@@ -288,15 +272,15 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 ```
 /kanban --update 019d9b9f description="CLI v0.14 优化" status=planned
 /kanban --update 019d9b9f draft="~/docs/requirements-v1.md"
-/kanban --update 019d9b9f worktree.dev-serve.role=developer worktree.dev-serve.action="重构命令解析器"
-/kanban --update 019d9b9f +worktree.review='{"role":"reviewer","action":"统一 review"}'
-/kanban --update 019d9b9f -worktree.obsolete
+/kanban --update 019d9b9f developer.dev-serve.brief="重构命令解析器"
+/kanban --update 019d9b9f add:reviewer:review:'{"brief":"统一 review"}'
+/kanban --update 019d9b9f del:developer:obsolete
 ```
 
 **语法规则**:
 - `<path>=<value>`:设置(path 在白名单)
-- `+<worktree-path>=<json>`:新增 worktree 条目(value 是 JSON 对象)
-- `-<worktree-path>`:删除 worktree 条目
+- `add:<role>:<name>:<json>`:新增 role 条目(value 是 JSON 对象,至少含 `brief`)
+- `del:<role>:<name>`:删除 role 条目
 - value 有空格时用引号;JSON 用单引号包外层
 - 多个操作**原子提交**,任一非法则全部不生效
 
@@ -310,16 +294,16 @@ bun run $SCRIPTS/update-task.ts <uuid> <op>...
 
 `<op>` 格式:
 - `set:<path>=<value>`
-- `add-worktree:<name>:<json>`
-- `del-worktree:<name>`
+- `add:<role>:<name>:<json>`
+- `del:<role>:<name>`
 
 Agent 负责把交互式选择翻译成这些 op,再调脚本。
 
-## 删除 worktree 条目的注意事项
+## 删除 role 条目的注意事项
 
 - 删除 `status=idle, attempt=0` 的条目是安全的——这是未被认领的预分配席位，无工作历史
 - 删除 `status` 非 idle 或 `attempt > 0` 的条目会丢失该 worktree 的工作历史（report、review 等文件不会被删除，但 kanban 中的状态追踪会断裂）
-- 若目的是将预分配席位映射到真实 worktree 名，优先使用 `/kanban --role` 的认领机制，而非先删后建
+- 若目的是将预分配席位映射到真实 cwd，优先使用 `/kanban --role` 的认领机制，而非先删后建
 
 ## 撤销
 
@@ -331,6 +315,6 @@ Agent 负责把交互式选择翻译成这些 op,再调脚本。
 ✅ 任务 019d9b9f 已更新
 变更:
   status:               draft → planned
-  + worktree.dev-serve: { role: developer, action: "..." }
+  + developer.dev-serve: { brief: "..." }
 当前 status: planned,可以在 dev-serve worktree 启动 Claude。
 ```

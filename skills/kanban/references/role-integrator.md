@@ -1,6 +1,6 @@
 # Role: Integrator
 
-当 skill 自动触发且 `worktree.<cwd>.role == "integrator"` 时加载此文档。
+当 skill 自动触发且当前 cwd 匹配 `task.integrator.<name>.cwd` 或条目 key 时加载此文档。
 
 ## 职责
 
@@ -8,8 +8,8 @@
 
 ## 触发条件
 
-- 所有 developer worktree 的 `integration` 字段不为冲突状态
-- 测试 worktree 报告 `verdict = "passed"`
+- 所有 developer 条目已由 test 置为 `done`
+- 测试报告 `verdict = "pass"`
 
 ## 工作循环
 
@@ -17,9 +17,9 @@
 enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 │
 ├─ 1. 检查前置条件
-│   ├─ 所有 developer worktree: test = passed
-│   ├─ 无 blocked 状态的 worktree
-│   └─ 条件不满足 → 汇报哪些 worktree 未完成,退出等待
+│   ├─ 所有 developer 条目已完成
+│   ├─ 无 blocked 状态的条目
+│   └─ 条件不满足 → 汇报哪些条目未完成,退出等待
 │
 ├─ 2. 更新 kanban
 │   └─ bun run agent-write.ts --thread <uuid> --worktree <你> --set status=working --set attempt=<current+1>
@@ -30,15 +30,15 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 ├─ 4. 逐个合并功能分支
 │   ├─ 简单冲突(格式、空白) → 自行解决
 │   └─ 语义冲突 → 标记并升级给对应 developer
-│       → worktree[对方].blocked_on = [<冲突说明>]
+│       → 对方 developer 条目 blocked_on = [<冲突说明>]
 │
 ├─ 5. 运行完整回归测试套件
 │
 ├─ 6. 编写集成报告 → integration-<NN>.md
 │
 └─ 7. 更新 kanban(锁内)
-    ├─ 每个 developer worktree: integration = "merged" 或 "conflict"
-    ├─ worktree[你].status = "done"
+    ├─ integrator.<你>.merged / conflicts 记录合并结果
+    ├─ integrator.<你>.status = "done"
     └─ 任务顶层 status 可提升为 "done"
 ```
 
@@ -49,7 +49,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 1. **报告文件名**:`~/.kanban/<repo>/<uuid>/integration-<NN>.md`
    - NN 用两位零填充,递增(01, 02, 03)
    - `NN = current_attempt`
-2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `integration-report` 模板
+2. **frontmatter + 正文**:先读 `references/frontmatter-templates.md` 的 `integration-report` 模板；实际写文件优先使用 `assets/report-skeletons/integration-report.md`
 3. **原子提交**(按顺序执行):
    - 自己:
      ```bash
@@ -59,10 +59,12 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
        --set status=done \
        --set report=~/.kanban/<repo>/<uuid>/integration-<NN>.md
      ```
-   - 每个 developer worktree `<dev>`:
+   - 若需要记录合并分支或冲突,更新 integrator 自身:
      ```bash
      bun run $SCRIPTS/agent-write.ts \
-       --thread <uuid> --worktree <dev> --set integration=merged
+       --thread <uuid> --worktree <自己> \
+       --set merged='["feature/dev-a"]' \
+       --set conflicts='[]'
      ```
    - 任务收尾:
      ```bash
@@ -89,7 +91,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 2. **创建集成分支并合并**：`git checkout -b integration/<tag>-attempt-<NN> main`，逐个合并功能分支
 3. **运行完整回归测试套件**
 4. **写 integration report 文件到磁盘**：`~/.kanban/<repo>/<uuid>/integration-<NN>.md`，模板见 `references/frontmatter-templates.md` 的 `integration-report` 模板
-5. **原子更新 kanban 状态**（按上方命令执行：更新自身 done，更新各 dev merged，更新任务顶层 done）
+5. **原子更新 kanban 状态**（按上方命令执行：更新自身 done / merged / conflicts，更新任务顶层 done）
 
 > 不写 integration report = 集成未发生。所有证据必须在文件系统中。
 

@@ -139,6 +139,30 @@ function listReports(repo: string, uuid: string): string[] {
     .map((x) => `  ${humanAgo(new Date(x.mtime).toISOString()).padEnd(8)}  ${x.name}`);
 }
 
+function listSubPlans(repo: string, uuid: string): string[] {
+  const dir = waveDir(repo, uuid);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => /^plan-[^/\\]+\.md$/i.test(f))
+    .sort();
+}
+
+function findMatchingSubPlan(subPlans: string[], key?: string | null): string | null {
+  if (!key) return null;
+  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  for (const plan of subPlans) {
+    const normalizedPlan = plan
+      .replace(/^plan-/i, "")
+      .replace(/\.md$/i, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "");
+    if (normalizedPlan && (normalizedKey.includes(normalizedPlan) || normalizedPlan.includes(normalizedKey))) {
+      return plan;
+    }
+  }
+  return null;
+}
+
 function buildIdleStations(task: Task): Record<string, Array<{ stationName: string; brief: string; blockedOn?: string | null }>> {
   const idleStations: Record<string, Array<{ stationName: string; brief: string; blockedOn?: string | null }>> = {};
   for (const rk of ROLE_KEYS) {
@@ -222,6 +246,14 @@ async function main() {
   out += "\n";
   out += `Repo:    ${task.repo}\n`;
   out += `Plan:    ${task.plan}\n`;
+
+  const subPlans = listSubPlans(task.repo, uuid!);
+  if (subPlans.length > 0) {
+    out += `SubPlans:\n`;
+    for (const plan of subPlans) out += `  - ${plan}\n`;
+    const matchedSubPlan = findMatchingSubPlan(subPlans, hlKey);
+    if (matchedSubPlan) out += `Current SubPlan: ${matchedSubPlan}\n`;
+  }
 
   if (task.draft) {
     const draftExists = existsSync(fromKanbanRel(task.draft));

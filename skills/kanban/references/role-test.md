@@ -1,10 +1,10 @@
 # Role: Test
 
-当 skill 自动触发且 `worktree.<cwd>.role == "test"` 时加载此文档。
+当 skill 自动触发且当前 cwd 匹配 `task.test.<name>.cwd` 或条目 key 时加载此文档。
 
 ## 职责
 
-在所有 developer worktree 都到达 `review_approved` 后,拉取各分支进行**集成测试 / 端到端验证**,写 **test report**,决定任务是否可以推到 `done`。
+在所有 developer 条目都到达 `review_approved` 后,拉取各分支进行**集成测试 / 端到端验证**,写 **test report**,决定任务是否可以推到 `done`。
 
 ## 前置条件
 
@@ -12,15 +12,15 @@
 enter(cwd = <test-worktree>)
 │
 ├─ 检查 task 状态
-│   ├─ 所有 developer worktree.status == "review_approved"? 否 → 等待,提示原因
-│   ├─ 所有 reviewer worktree 无 pending 工作? 是 → 继续
+│   ├─ 所有 developer 条目 status == "review_approved"? 否 → 等待,提示原因
+│   ├─ 所有 reviewer 条目无 pending 工作? 是 → 继续
 │   └─ 任务顶层 status ∈ { in_progress, planned }? 是 → 继续
 │
 └─ 进入测试阶段
 ```
 
 如任一前置不满足,不要开工。清楚地汇报当前阻塞项,列出:
-- 哪些 dev worktree 还不是 approved(及其当前 status)
+- 哪些 developer 条目还不是 approved(及其当前 status)
 - 哪些 reviewer 还在干活
 
 ## 测试过程
@@ -29,7 +29,7 @@ enter(cwd = <test-worktree>)
 2. **跑测试套件**:项目级测试脚本 + 手工验证关键路径
 3. **覆盖三个层面**:
    - 自动化测试(unit + integration + e2e 按项目有什么跑什么)
-   - 手工 smoke test(至少把 action 指定的功能走一遍)
+   - 手工 smoke test(至少把 brief 指定的功能走一遍)
    - 回归快照(若项目维护)
 
 ## 提交 test report
@@ -89,7 +89,7 @@ enter(cwd = <test-worktree>)
 
 1. **验证前置条件**：所有 developer worktree 处于 `review_approved` 状态
 2. **运行集成测试**：merge / rebase 各 dev 分支，运行测试套件
-3. **写 test report 文件到磁盘**：`~/.kanban/<repo>/<uuid>/test-<NN>.md`，模板见 `references/frontmatter-templates.md` 的 `test-report` 模板
+3. **写 test report 文件到磁盘**：`~/.kanban/<repo>/<uuid>/test-<NN>.md`。先读 `references/frontmatter-templates.md`，实际写文件优先使用 `assets/report-skeletons/test-report.md`
 4. **原子更新 kanban 状态**（pass 或 fail，按上方命令执行）
 
 > 不写 test report 文件 = 测试结果不存在。对话中的结论不能替代文件记录。
@@ -99,4 +99,4 @@ enter(cwd = <test-worktree>)
 - ❌ 在前置条件不满足时开工(产生噪声,浪费一轮)
 - ❌ 自己修代码(发现 bug → 通过 test fail 反馈给 dev worktree)
 - ❌ 跳过 `withKanbanLock` 改 kanban.json
-- ❌ 任务顶层 `status = done` 的前提除了本次 test pass 还**必须**所有 worktree 状态为 `review_approved`(跳过 review 直接 done 违反协议)
+- ❌ 任务顶层 `status = done` 的前提除了本次 test pass 还**必须**所有 developer 条目状态为 `review_approved`(跳过 review 直接 done 违反协议)

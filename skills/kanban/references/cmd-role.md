@@ -50,8 +50,7 @@
 
 **读取空置席位**：调用 `query.ts <uuid>`，从输出的 JSON 块中获取 `idleStations[<role>]`。
 
-**扫描条件**（`query.ts` 内部实现）：遍历 `task.worktree`，筛选满足以下全部条件的条目：
-- `role` === 用户传入的 `<role>`
+**扫描条件**（`query.ts` 内部实现）：遍历 `task.<role>`，筛选满足以下全部条件的条目：
 - `status` === `"idle"`
 - `attempt` === `0`
 
@@ -62,7 +61,7 @@
 **有 1 个空置席位** → AskUserQuestion：
 
 ```
-检测到预分配席位 "<stationName>" (<role> — <action>)，是否认领？
+检测到预分配席位 "<stationName>" (<role> — <brief>)，是否认领？
 (a) 认领该席位
 (b) 不认领，创建独立的新角色
 ```
@@ -70,42 +69,42 @@
 若席位含 `blockedOn`（来自 `idleStations` 的 `blockedOn` 字段），追加提示：
 `ℹ️ 该席位需等待 <blockedOn> 完成后才能启动（已设置 blocked_on）`
 
-- 用户选 (a) → 脚本传 `--claim-from <stationName>`，继续步骤 3 采集 brief（预分配的 action 作为默认建议）
+- 用户选 (a) → 脚本传 `--claim-from <stationName>`，继续步骤 3 采集 brief（预分配的 brief 作为默认建议）
 - 用户选 (b) → 不传 `--claim-from`，继续步骤 3
 
 **有 2 个空置席位** → AskUserQuestion：
 
 ```
 当前任务有以下空置的 <role> 席位：
-(a) <stationName1> — <action1>
-(b) <stationName2> — <action2>
+(a) <stationName1> — <brief1>
+(b) <stationName2> — <brief2>
 (c) 不认领，创建独立的新角色
 ```
 
-各选项若含 `blockedOn`，在 action 后追加 `（阻塞于 <blockedOn>）`。
+各选项若含 `blockedOn`，在 brief 后追加 `（阻塞于 <blockedOn>）`。
 
 **有 3 个及以上空置席位** → 按优先级展示前 3，注明总数：
 
 ```
 当前任务有 <N> 个空置的 <role> 席位，展示优先级前 3：
-(a) <stationName1> — <action1>
-(b) <stationName2> — <action2>
-(c) <stationName3> — <action3>
+(a) <stationName1> — <brief1>
+(b) <stationName2> — <brief2>
+(c) <stationName3> — <brief3>
 (d) 不认领，创建独立的新角色
 ```
 
 各选项若含 `blockedOn`，同上处理。
 
-席位按 `task.worktree` 中的顺序排列（`--new` 创建时先定义的优先级更高），Agent 层按 `idleStations` 数组原序读取即可。
+席位按 `task.<role>` 中的顺序排列（`--new` 创建时先定义的优先级更高），Agent 层按 `idleStations` 数组原序读取即可。
 
 - 用户选某个席位 → 脚本传对应的 `--claim-from`
 - 用户选"不认领" → 不传 `--claim-from`，正常创建
 
 **名称相同时的处理**：若 `worktreeName` 恰好等于某个预分配席位名，无需认领——直接走正常的"同角色幂等"路径即可，不传 `--claim-from`。
 
-**认领时的 action 处理**：
-- 若用户在命令中提供了 `<context>`（如 `/kanban --role developer "负责音频模块"`），使用用户提供的 action
-- 若未提供 `<context>`，将预分配席位的原始 action 作为默认建议呈现在步骤 3 的 AskUserQuestion 中
+**认领时的 brief 处理**：
+- 若用户在命令中提供了 `<context>`（如 `/kanban --role developer "负责音频模块"`），使用用户提供的 brief
+- 若未提供 `<context>`，将预分配席位的原始 brief 作为默认建议呈现在步骤 3 的 AskUserQuestion 中
 
 **认领失败恢复**：若 `role.ts` 返回席位不存在/已被认领的错误（TOCTOU 竞争导致），Agent 不应将错误原样展示给用户。应重新调用 `query.ts` 获取最新的空置席位列表：
 - 仍有同角色空置席位 → 重新展示候选（同样最多展示前 3）："刚才选择的席位已被其他 Agent 认领，以下是当前可用的席位：..."
@@ -113,9 +112,9 @@
 
 ### 3. 采集 brief
 
-**有 `<context>`**:直接作为 action 写入,不追问。
+**有 `<context>`**:直接作为 brief 写入,不追问。
 
-**无 `<context>`**:AskUserQuestion,提供 plan 推断建议与默认 action:
+**无 `<context>`**:AskUserQuestion,提供 plan 推断建议与默认 brief:
 
 ```
 当前 worktree 尚未明确职责。请选择:
@@ -125,9 +124,9 @@
 (d) 其他(请说明)
 ```
 
-各角色默认 action:
+各角色默认 brief:
 
-| 角色          | 默认 action                                                          |
+| 角色          | 默认 brief                                                           |
 | ------------- | -------------------------------------------------------------------- |
 | `developer`   | 独立完成 plan 中分配的全部任务(全栈开发,含测试)                     |
 | `reviewer`    | 审查所有 developer 的交付,确保代码质量与 plan 一致                  |
@@ -137,19 +136,19 @@
 - 选项 (a)(b) 由 plan.md 内容推断生成
 - 选 (d) 后接一轮自由文本输入
 - 用户放弃或输入空 → 中止注册,kanban 不被修改
-- **action 不允许为空或占位符**
+- **brief 不允许为空或占位符**
 
 ### 4. 冲突处理
 
-**已有条目是同角色**(通过 cwd 匹配):幂等处理,更新 action 和 cwd:
+**已有条目是同角色**(通过 cwd 匹配):幂等处理,更新 brief 和 cwd:
 ```
-⚠️  worktree dev-serve 已注册为 developer,本次刷新了 action。
+⚠️  worktree dev-serve 已注册为 developer,本次刷新了 brief。
 ```
 
 **已有条目是不同角色**:拒绝操作:
 ```
 ❌ worktree dev-serve 已注册为 reviewer,跨角色切换请走:
-   /kanban --update <uuid> worktree.dev-serve.role=developer
+   /kanban --update <uuid> add:developer:dev-serve:'{"brief":"..."}'
 ```
 
 ### 5. 写入
@@ -158,8 +157,7 @@
 
 | 字段         | 值                        |
 | ------------ | ------------------------- |
-| `role`       | 来自参数                  |
-| `action`     | `<context>` 或追问结果    |
+| `brief`      | `<context>` 或追问结果    |
 | `cwd`        | `basename(pwd)`           |
 | `status`     | `"idle"`                  |
 | `attempt`    | `0`                       |
@@ -171,7 +169,7 @@
 
 若任务 `status == "draft"`,注册后**不自动提升**到 planned,保持 draft。
 
-若 role=developer 且 task.status ∈ {planned, in_progress} 且 blocked_on 为空,注册时自动将 worktree.status 设为 `"working"`、attempt 设为 `1`。若此时 task.status 为 `"planned"`,同步提升为 `"in_progress"`。
+若 role=developer 且 task.status ∈ {planned, in_progress} 且 blocked_on 为空,注册时自动将 developer 条目 status 设为 `"working"`、attempt 设为 `1`。若此时 task.status 为 `"planned"`,同步提升为 `"in_progress"`。
 
 ### 6. 角色自然承接动作
 
@@ -181,7 +179,7 @@
 
 自动领取判断(脚本层完成,Agent 层读取输出):
 
-1. 读 plan.md,找到与 action 匹配的节
+1. 读 plan.md,找到与 brief 匹配的节；若存在 `plan-*.md` 子计划,优先读取与席位/brief 对应的子计划
 2. 脚本自动检查条件:
    - task.status ∈ {planned, in_progress} 且 blocked_on 为空 → **自动 working + attempt+1**,task.status 从 planned 提升为 in_progress(若适用)
    - task.status == "draft" → 保持 idle,报告"任务尚在 draft,需先提升到 planned"
@@ -220,7 +218,7 @@
 ```
 ✅ <worktree> 已注册 [<role>]（认领自预分配席位 <presetName>）
 Task: <short-uuid> (<description>)
-Action: <action>
+Brief:  <brief>
 Status: <idle 或 working>
 
 <角色自然承接报告>
@@ -233,7 +231,7 @@ Plan 对应节: ## <匹配节标题> (若 plan.md 存在)
 ```
 ✅ <worktree> 已注册 [<role>]
 Task:   <short-uuid> (<description>)
-Action: <action>
+Brief:  <brief>
 Status: <idle 或 working>
 
 <角色自然承接报告>
@@ -243,7 +241,7 @@ Plan 对应节: ## <匹配节标题>    (若 plan.md 存在)
 
 ## 与 `--update` 的关系
 
-`--role` 是**首次注册**的快捷入口,只操作当前 cwd 对应的 worktree 条目。注册完成后的任何字段修改(换 action、换 role)都走 `--update`。
+`--role` 是**首次注册**的快捷入口,只操作当前 cwd 对应的 role 条目。注册完成后的任何字段修改(换 brief、换 role)都走 `--update`。
 
 ## 实现脚本
 
@@ -258,7 +256,7 @@ bun run $SCRIPTS/role.ts \
 
 `--claim-from` 仅当用户在步骤 2.5 选择了认领预分配席位时才传入。
 
-Agent 层负责交互采集(role 校验、action 追问、任务定位),脚本只接收已决策的参数并执行写入。
+Agent 层负责交互采集(role 校验、brief 追问、任务定位),脚本只接收已决策的参数并执行写入。
 
 > **stableKey**：`role.ts` stdout 包含 `stableKey` 字段。认领席位后 Agent 应使用 stableKey
 > 作为后续 `agent-write.ts --worktree <stableKey>` 的参数，而非 `basename(pwd)`。

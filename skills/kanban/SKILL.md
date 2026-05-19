@@ -1,8 +1,11 @@
 ---
 name: kanban
 description: >
-  Multi-agent kanban via git worktrees. Each worktree registers a role, writes progress
-  reports, and atomically updates shared task state in `~/.kanban/kanban.json`.
+  Explicit `/kanban` task orchestration for multi-agent git worktrees. Use when the
+  user invokes `/kanban`, mentions kanban/thread/task/role work, asks a
+  developer/reviewer/test/integrator seat to continue, or the current worktree is
+  already registered. Do not treat ordinary code review requests as kanban review
+  unless kanban context is explicit.
 ---
 
 # Kanban Skill
@@ -141,7 +144,7 @@ bun run $SCRIPTS/<script>.ts [args...]
 
 自动触发时同时加载 `references/data-model.md`。
 
-报告 frontmatter 规范：`references/frontmatter-templates.md`，生成报告前读一次。
+报告 frontmatter 规范：`references/frontmatter-templates.md`，生成报告前读一次。实际写文件时优先使用 `assets/report-skeletons/*.md` 的对应骨架。
 
 ## 汇报风格
 

@@ -37,17 +37,17 @@ Updated: 2026-04-18 14:32
 
 **done / archived / aborted**:同 planned 风格,但图标换成 `✅ / 📦 / ❌`
 
-### Worktree 矩阵
+### Entries 矩阵
 
-以表格展示所有 worktree 当前状态:
+以表格展示所有 developer / reviewer / test / integrator 条目当前状态:
 
 ```
-Worktree      Role       Status         Attempt  Latest Report
-------------  ---------  -------------  -------  --------------------------------
-dev-serve     developer  working        1        report-dev-serve-01.md
-dev-gui       developer  review_rejected 2       report-dev-gui-02.md (被 review)
-review        reviewer   idle           -        -
-test          test       idle           -        -
+Entry         Role       Status          Attempt  CWD       Reports
+------------  ---------  --------------  -------  --------  -------
+chat-box      developer  working         1        (same)    1
+left-sidebar  developer  review_rejected 2        dev-left  2
+review        reviewer   idle            0        -         -
+test          test       idle            0        -         -
 ```
 
 ### 当前身份视角(若 cwd 是某个 worktree)
@@ -62,9 +62,9 @@ test          test       idle           -        -
 
 下一步建议的决策表:
 
-| 身份      | worktree.status    | 建议                                                   |
+| 身份      | entry.status       | 建议                                                   |
 | --------- | ------------------ | ------------------------------------------------------ |
-| developer | idle               | 读 plan,依 action 开工,完成后写 report 并转 waiting_review |
+| developer | idle               | 读 plan,依 brief 开工,完成后写 report 并转 waiting_review |
 | developer | working            | 继续,未完则保存进度                                    |
 | developer | waiting_review     | 等 reviewer;可切别的 worktree                          |
 | developer | review_rejected    | 读最新 review-<name>-NN.md,依据修改,attempt+1         |
@@ -74,9 +74,9 @@ test          test       idle           -        -
 | integrator | idle              | 所有 dev worktree test 通过时,合并分支,写 integration-NN.md |
 | 任意      | blocked            | 读 `blocked_on` 字段,先解阻塞                         |
 
-### Plan 正文预览
+### Plan 与子计划索引
 
-默认**折叠**,只列 outline(plan.md 里的二级标题)。用户需要查看全文时,Agent 直接用 Read 工具读取 plan 文件路径。
+`query.ts` 直接输出可转发的 plain text。若任务目录存在 `plan-*.md`,在 `Plan:` 下方列出子计划索引；若当前 cwd 匹配某个席位且可根据席位名匹配子计划,追加 `Current SubPlan:` 提示。用户需要查看全文时,Agent 直接读取对应文件路径。
 
 ### 最近报告列表
 
@@ -98,7 +98,7 @@ bun run $SCRIPTS/query.ts <uuid>
 脚本负责:
 1. 解析短前缀 → 完整 UUID,多候选时打印候选(Agent 层再问用户)
 2. 不加锁读 kanban + 扫任务目录
-3. 输出结构化 JSON(由 Agent 渲染为上述格式),或直接输出渲染好的 plain text(推荐后者,减少 Agent 工作)
+3. 输出最终 plain text。Agent 对 `query.ts` / `status.ts` stdout 逐字转发,不总结、不省略、不重排；尾部 `\0JSON` 块仅供 `cmd-role.md` 等内部流程读取。`/kanban` 空参数走 help 模板例外。
 
 ## 边界情况
 

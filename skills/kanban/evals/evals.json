@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "name": "kanban-skill-regression",
+  "cases": [
+    {
+      "id": "new-from-plan-planned",
+      "input": "/kanban --new @plan.md",
+      "expected": [
+        "creates a planned task",
+        "copies plan.md into ~/.kanban/<repo>/<uuid>/plan.md",
+        "requires at least one role entry with a non-empty brief"
+      ]
+    },
+    {
+      "id": "new-from-multi-plan",
+      "input": "/kanban --new @plan.md where plan.md links ./plan-a.md and ./plan-b.md",
+      "expected": [
+        "treats plan.md as an index document",
+        "copies linked plan-*.md files from the same directory",
+        "assigns developer seats whose briefs correspond to the sub-plans"
+      ]
+    },
+    {
+      "id": "role-claim-sub-plan",
+      "input": "/kanban --role developer from a worktree with an idle preassigned developer seat",
+      "expected": [
+        "offers to claim the preassigned seat",
+        "keeps the stable key and records cwd",
+        "reads plan.md and the matching plan-*.md before starting work"
+      ]
+    },
+    {
+      "id": "reviewer-standard-flow",
+      "input": "reviewer context with a developer entry in waiting_review",
+      "expected": [
+        "reads the dev report file",
+        "checks the git diff before deciding",
+        "writes review-<dev>-<NN>.md",
+        "updates developer status through agent-write.ts"
+      ]
+    },
+    {
+      "id": "draft-auto-trigger-refuses-work",
+      "input": "automatic kanban trigger for a task with status=draft",
+      "expected": [
+        "does not enter role work mode",
+        "tells the user to promote the task to planned first",
+        "does not mutate kanban state"
+      ]
+    }
+  ]
+}

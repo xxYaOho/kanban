@@ -51,9 +51,12 @@ const CLAUDE_MD = `# ~/.kanban/ 操作规范
 
 ## 字段权限提醒
 以下字段由 Agent 自主维护，人工不应覆盖：
-- worktree.*.status / attempt / report / review / test / error / blocked_on / integration
+- developer.*.status / attempt / reports / review / error / blocked_on / cwd / worktree
+- reviewer.*.status / attempt / pass / report / error
+- test.*.status / attempt / pass / fail / report / error / cwd / worktree
+- integrator.*.status / attempt / merged / conflicts / report / error / cwd / worktree
 以下字段允许人工修改（等同于 /kanban --update）：
-- status / description / plan / repo / worktree.*.role / worktree.*.action
+- status / description / plan / draft / repo / <role>.<name>.brief
 `;
 
 function parseArgs(argv: string[]) {

@@ -17,7 +17,7 @@
 import { mkdir, writeFile, copyFile, stat, readFile } from "fs/promises";
 import { existsSync } from "fs";
 import { randomUUID } from "crypto";
-import { resolve } from "path";
+import { basename, dirname, resolve } from "path";
 import { withKanbanLock } from "./kanban-lock";
 import { waveDir, toKanbanRel } from "./paths";
 import type { Task, DevEntry, ReviewerEntry, TestEntry, IntegratorEntry } from "./kanban-io";
@@ -35,6 +35,11 @@ interface Args {
   planRef?: string;
   draftRef?: string;
   worktreesJson?: string;
+}
+
+interface CopiedPlanFile {
+  source: string;
+  target: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -177,6 +182,42 @@ function validateDevChains(devs: Record<string, Partial<DevEntry>>): Record<stri
   return chains;
 }
 
+function extractLinkedSubPlans(markdown: string): string[] {
+  const matches = new Set<string>();
+  const linkPattern = /!?\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  for (const match of markdown.matchAll(linkPattern)) {
+    const rawTarget = match[1]?.trim();
+    if (!rawTarget) continue;
+    const withoutFragment = rawTarget.split("#")[0];
+    if (/^[a-z][a-z0-9+.-]*:/i.test(withoutFragment)) continue;
+    if (!withoutFragment.startsWith("./")) continue;
+    const filename = basename(withoutFragment);
+    if (withoutFragment === `./${filename}` && /^plan-[^/\\]+\.md$/i.test(filename)) {
+      matches.add(filename);
+    }
+  }
+  return [...matches].sort();
+}
+
+async function copyLinkedSubPlans(srcPlan: string, targetDir: string): Promise<CopiedPlanFile[]> {
+  const content = await readFile(srcPlan, "utf-8");
+  const linkedSubPlans = extractLinkedSubPlans(content);
+  const copied: CopiedPlanFile[] = [];
+  for (const filename of linkedSubPlans) {
+    const src = resolve(dirname(srcPlan), filename);
+    if (!existsSync(src)) {
+      throw new Error(`plan.md 引用了不存在的子计划: ./${filename}`);
+    }
+  }
+  for (const filename of linkedSubPlans) {
+    const src = resolve(dirname(srcPlan), filename);
+    const target = resolve(targetDir, filename);
+    await copyFile(src, target);
+    copied.push({ source: src, target });
+  }
+  return copied;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -186,6 +227,7 @@ async function main() {
   const planTarget = resolve(dir, "plan.md");
   await mkdir(dir, { recursive: true });
   let planPath: string;
+  let copiedSubPlans: CopiedPlanFile[] = [];
 
   if (args.planRef) {
     const ref = resolve(args.planRef).replace(/^\/Users\/[^/]+/, "~");
@@ -197,6 +239,7 @@ async function main() {
       const src = resolve(args.planFile);
       if (!existsSync(src)) throw new Error(`--plan-file 不存在: ${src}`);
       await copyFile(src, planTarget);
+      copiedSubPlans = await copyLinkedSubPlans(src, dir);
       planPath = toKanbanRel(planTarget);
     } else if (args.mode === "extract") {
       if (!args.planContentFile) throw new Error("extract 模式必须传 --plan-content-file");
@@ -257,6 +300,7 @@ async function main() {
         short,
         dir,
         planTarget: args.planRef ? planPath : toKanbanRel(planTarget),
+        subPlans: copiedSubPlans.map((p) => toKanbanRel(p.target)),
         status,
         entries: Object.fromEntries(
           (["developer", "reviewer", "test", "integrator"] as const).map(

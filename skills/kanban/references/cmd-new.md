@@ -68,6 +68,8 @@
 
 **文件拷贝策略**:来源 B 将文件**拷贝**进 `~/.kanban/…/plan.md`,不保留软链接。原文件不动,kanban 自足。
 
+**索引式 multi-plan**:若导入的 `plan.md` 包含同目录相对链接 `./plan-*.md`,视为索引式计划结构。脚本在复制主计划时同步复制这些子计划到同一任务目录。链接指向的子计划不存在时,先报错并让用户修正计划文件,不得创建半残任务。只复制主计划同目录的一层 `plan-*.md`,不递归复制其他 Markdown 链接。
+
 ## 预分配席位智能分析
 
 plan 就绪后（来源 A+/A/B），在进行席位预分配前，按以下流程严格分析。
@@ -93,6 +95,8 @@ C3 是唯一允许"有条件通过"的项——当 plan 中明确描述了 Phase
 ### 分析流程
 
 1. 模型通读 plan.md，理解章节结构、文件路径引用、模块划分
+   - 若存在 `./plan-*.md` 子计划索引,继续逐个读取子计划
+   - 多 developer 席位优先对应具体子计划；主 `plan.md` 只负责总目标、索引、执行顺序和依赖说明
 2. 按 4 条件逐一评估：
    - **单席位合理** → 静默构造 worktree JSON，不向用户提问
    - **多席位可能合理** → 进入步骤 3
@@ -120,11 +124,11 @@ C3 是唯一允许"有条件通过"的项——当 plan 中明确描述了 Phase
 {
   "dev-parser": {
     "role": "developer",
-    "brief": "重构命令解析器（Phase 1）"
+    "brief": "重构命令解析器（Phase 1，对应 plan-parser.md）"
   },
   "dev-rbac": {
     "role": "developer",
-    "brief": "实现 RBAC 中间件（Phase 2）",
+    "brief": "实现 RBAC 中间件（Phase 2，对应 plan-rbac.md）",
     "blocked_on": "dev-parser"
   }
 }
@@ -153,6 +157,8 @@ bun run $SCRIPTS/new-task.ts \
 ```
 
 `--worktrees-json` 中 developer 条目可含 `blocked_on` 字段（值为同任务其他 developer 的名称）。脚本自动校验链完整性（目标存在、无自引用、无环形依赖），校验失败则拒绝写入。
+
+fromFile 模式若识别到索引式 multi-plan,stdout 的 JSON 会包含 `subPlans: ["~/.kanban/.../plan-a.md", ...]`。
 
 ## 汇报模板
 

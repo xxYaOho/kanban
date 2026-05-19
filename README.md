@@ -4,13 +4,14 @@
 
 ## 前提条件
 
-- [Bun](https://bun.sh) >= 1.0
+- [Bun](https://bun.sh) >= 1.1.0
 - Claude Code (或其他 CLI 工具, 例如 Opencode)
 
 ## 安装
 
 ```bash
-cd kanban # 或你的项目目录名
+cd /path/to/skill_kanban
+mkdir -p ~/.claude/skills
 ln -s "$(pwd)/skills/kanban" ~/.claude/skills/kanban # 或 ~/.agents/skills
 bun --version || curl -fsSL https://bun.sh/install | bash
 ```
@@ -28,7 +29,7 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 | `/kanban --init`                    | 初始化 `~/.kanban/` 数据层     |
 | `/kanban --new [<context>]`         | 从上下文创建任务(自动判别来源) |
 | `/kanban --update <uuid> [ops]`     | 交互式或快捷更新任务字段       |
-| `/kanban --uuid <uuid>`             | 查询任务视图与下一步建议       |
+| `/kanban --thread <uuid>`           | 查询任务视图与下一步建议       |
 | `/kanban --role <role> [<context>]` | 当前 worktree 自注册角色       |
 
 ## 典型工作流

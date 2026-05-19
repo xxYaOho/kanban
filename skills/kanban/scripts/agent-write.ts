@@ -16,6 +16,10 @@ import { withKanbanLock } from "./kanban-lock";
 import {
   resolveUuid,
   type Kanban,
+  type DevStatus,
+  type IntegratorStatus,
+  type ReviewerStatus,
+  type TestStatus,
   VALID_DEV_STATUSES,
   VALID_REVIEWER_STATUSES,
   VALID_TEST_STATUSES,
@@ -38,7 +42,9 @@ const AGENT_WRITABLE_FIELDS = new Set([
   "conflicts",    // integrator
 ]);
 
-const ALL_VALID_STATUSES = new Set([
+type AgentStatus = DevStatus | ReviewerStatus | TestStatus | IntegratorStatus;
+
+const ALL_VALID_STATUSES = new Set<AgentStatus>([
   ...VALID_DEV_STATUSES,
   ...VALID_REVIEWER_STATUSES,
   ...VALID_TEST_STATUSES,
@@ -131,7 +137,7 @@ function parseValue(key: string, raw: string): unknown {
 
   switch (key) {
     case "status": {
-      if (!ALL_VALID_STATUSES.has(raw)) {
+      if (!ALL_VALID_STATUSES.has(raw as AgentStatus)) {
         throw new Error(`无效的 status: "${raw}"`);
       }
       return raw;
