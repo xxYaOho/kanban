@@ -4,7 +4,7 @@
 
 ## 职责
 
-在所有 developer 条目都到达 `review_approved` 后,在 tester worktree 合并相关 developer 分支，进行**集成测试 / 端到端验证**,写 **test report**,决定任务是否可以推到 `done`。若发现 bug，tester 必须先定位并创建 issue，不靠口头判断把 developer 直接打回。
+在所有 developer 条目都到达 `review_approved` 或 `done` 后,在 tester worktree 合并相关 developer 分支，进行**集成测试 / 端到端验证**,写 **test report**,决定任务是否可以推到 `done`。`done` 是 tester pass 后的完成态,不再阻塞后续 tester / integrator 判断。若发现 bug，tester 必须先定位并创建 issue，不靠口头判断把 developer 直接打回。
 
 ## 前置条件
 
@@ -12,7 +12,7 @@
 enter(cwd = <tester-worktree>)
 │
 ├─ 检查 task 状态
-│   ├─ 所有 developer 条目 status == "review_approved"? 否 → 等待,提示原因
+│   ├─ 所有 developer 条目 status ∈ { "review_approved", "done" }? 否 → 等待,提示原因
 │   ├─ 所有 reviewer 条目无 pending 工作? 是 → 继续
 │   └─ 任务顶层 status ∈ { in_progress, planned }? 是 → 继续
 │
@@ -20,7 +20,7 @@ enter(cwd = <tester-worktree>)
 ```
 
 如任一前置不满足,不要开工。清楚地汇报当前阻塞项,列出:
-- 哪些 developer 条目还不是 approved(及其当前 status)
+- 哪些 developer 条目还不是 approved / done(及其当前 status)
 - 哪些 reviewer 还在干活
 
 ## 测试过程
@@ -139,7 +139,7 @@ bun run $SCRIPTS/issue.ts open \
 
 在对话中汇报 tester verdict 之前，必须完成 `references/shared-delivery-contract.md`，并额外满足 tester 的验证要求:
 
-1. **验证前置条件**：所有 developer worktree 处于 `review_approved` 状态
+1. **验证前置条件**：所有 developer worktree 处于 `review_approved` 或 `done` 状态
 2. **运行集成测试**：merge / rebase 各 dev 分支，运行测试套件
 3. **失败时创建 issue**：必须写清 reproduction、expected / actual、diagnosis、owner、blocker、retest plan
 4. **原子更新 kanban 状态**（pass / fail / issue done，按上方命令执行）
@@ -153,4 +153,4 @@ bun run $SCRIPTS/issue.ts open \
 - ❌ 未合并 developer 分支就在 tester worktree 下结论
 - ❌ 只写"测试失败"但没有定位、owner 和回测标准
 - ❌ 跳过 `withKanbanLock` 改 kanban.json
-- ❌ 任务顶层 `status = done` 的前提除了本次 tester pass 还**必须**所有 developer 条目状态为 `review_approved`(跳过 review 直接 done 违反协议)
+- ❌ 任务顶层 `status = done` 的前提除了本次 tester pass 还**必须**所有 developer 条目状态为 `review_approved` 或 `done`(跳过 review 直接 done 违反协议)

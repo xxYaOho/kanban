@@ -164,7 +164,6 @@
 | `attempt`    | `0`                       |
 | `report`     | `null`                    |
 | `review`     | `null`                    |
-| `tester`     | `null`                    |
 | `error`      | `null`                    |
 | `blocked_on` | `null`                    |
 
@@ -220,8 +219,8 @@
 
 承接判断:
 
-1. `testerBlockedBy.length == 0` → `✅ 所有 developer 交付已通过审查,可以开始测试`
-2. `testerBlockedBy.length > 0` → `⚠️ 以下 worktree 尚未通过审查: dev-serve(working), dev-api(waiting_review)`
+1. `testerBlockedBy.length == 0` → `✅ 所有 developer 交付已通过审查或已完成,可以开始测试`
+2. `testerBlockedBy.length > 0` → `⚠️ 以下 worktree 尚未通过审查或完成: dev-serve(working), dev-api(waiting_review)`
 
 #### integrator
 

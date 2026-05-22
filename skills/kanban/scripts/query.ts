@@ -211,7 +211,7 @@ function buildEligibleReviewTargets(task: Task): EntrySummary[] {
 
 function buildTesterBlockedBy(task: Task): EntrySummary[] {
   return Object.entries(task.developer ?? {})
-    .filter(([, entry]) => entry.status !== "review_approved")
+    .filter(([, entry]) => entry.status !== "review_approved" && entry.status !== "done")
     .map(([key, entry]) => summarizeEntry("developer", key, entry));
 }
 
@@ -220,7 +220,7 @@ function buildIntegratorBlockedBy(task: Task): EntrySummary[] {
   for (const role of roleKeys().filter((rk) => rk !== "integrator")) {
     for (const [key, entry] of Object.entries(task[role] ?? {})) {
       const summary = summarizeEntry(role, key, entry);
-      if (summary.status === "blocked" || summary.status !== "done") {
+      if (summary.status !== "done") {
         blockers.push(summary);
       }
     }

@@ -71,7 +71,7 @@ test          tester     idle            0        -         -
 | developer | review_rejected    | 读最新 review-<name>-NN.md,依据修改,attempt+1         |
 | reviewer  | idle               | 检查所有 developer waiting_review 的 worktree,拉取报告 review |
 | reviewer  | working            | 继续 review                                            |
-| tester    | idle               | 所有 dev worktree 都 approved 时,拉分支跑测,写 test-NN.md    |
+| tester    | idle               | 所有 dev worktree 都 approved 或 done 时,拉分支跑测,写 test-NN.md |
 | integrator | idle              | 所有 dev worktree 测试通过时,合并分支,写 integration-NN.md |
 | 任意      | blocked            | 读 `blocked_on` 字段,先解阻塞                         |
 
@@ -119,8 +119,8 @@ bun run $SCRIPTS/query.ts <uuid>
 | `currentEntry` | 当前 cwd 命中的 `{ role, key, status, brief }`，未命中时为 `null` |
 | `idleStations` | 可认领的空置席位，保留给 `--role` 席位认领流程 |
 | `eligibleReviewTargets` | `developer` 中所有 `waiting_review` 条目 |
-| `testerBlockedBy` | tester 开工前仍未 `review_approved` 的 developer 条目 |
-| `integratorBlockedBy` | integrator 开工前未 `done` 或仍 blocked 的前置条目 |
+| `testerBlockedBy` | tester 开工前仍未 `review_approved` 且未 `done` 的 developer 条目；`done` 是 `review_approved` 之后的完成态，不阻塞 tester |
+| `integratorBlockedBy` | integrator 开工前所有未 `done` 的 developer / reviewer / tester 前置条目 |
 | `recommendedNextAction` | 一句话动作提示，只做引导，不替代角色手册 |
 
 ## 边界情况

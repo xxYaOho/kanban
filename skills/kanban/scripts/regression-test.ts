@@ -77,6 +77,17 @@ async function seedTask(home: string): Promise<string> {
           review: "review-gamma-01.md",
           error: null,
         },
+        delta: {
+          status: "done",
+          brief: "Delta work",
+          attempt: 1,
+          blocked_on: null,
+          worktree: "delta",
+          cwd: "delta",
+          reports: ["report-delta-01.md"],
+          review: "review-delta-01.md",
+          error: null,
+        },
       },
       reviewer: {
         review: {
@@ -158,6 +169,7 @@ async function testQueryJson(home: string): Promise<void> {
   assert(json.eligibleReviewTargets.some((entry: any) => entry.key === "alpha"), "alpha should be eligible for review");
   assert(json.testerBlockedBy.some((entry: any) => entry.key === "alpha"), "alpha should block tester");
   assert(json.testerBlockedBy.some((entry: any) => entry.key === "beta"), "beta should block tester");
+  assert(!json.testerBlockedBy.some((entry: any) => entry.key === "delta"), "done developer should not block tester");
   assert(json.integratorBlockedBy.some((entry: any) => entry.role === "tester" && entry.key === "full"), "tester should block integrator");
   assert(typeof json.recommendedNextAction === "string" && json.recommendedNextAction.length < 120, "recommendedNextAction should be short");
   assert(json.idleStations.tester.some((entry: any) => entry.stationName === "legacy"), "legacy task.test should migrate into tester idleStations");
