@@ -15,7 +15,7 @@ UUID 允许短前缀(≥6),多候选时列表让用户选。
 
 **允许改**:
 - 顶层:`status` / `description` / `plan` / `draft` / `repo`
-- role 条目 brief:`developer.<name>.brief` / `reviewer.<name>.brief` / `test.<name>.brief` / `integrator.<name>.brief`
+- role 条目 brief:`developer.<name>.brief` / `reviewer.<name>.brief` / `tester.<name>.brief` / `integrator.<name>.brief`
 - 新增整个 role 条目:
   - `draft` / `planned`:允许新增 idle 条目
   - `in_progress`:允许追加新的 idle 条目,用于 multi-plan 继续扩展
@@ -76,7 +76,7 @@ UUID 允许短前缀(≥6),多候选时列表让用户选。
    - 选 (a) → 使用 `del:` + `add:` ops 重建席位结构：
      - 删除所有旧 developer 条目（仅在均 idle + attempt=0 且任务未进入 `in_progress` 时可操作）
      - 按新分析结果创建 developer 条目（add op 支持 `blocked_on`）
-     - 非 developer 角色（reviewer/test/integrator）不受影响
+     - 非 developer 角色（reviewer/tester/integrator）不受影响
    - 选 (b) → 仅保存 plan，席位不变，diff 底部追加 `⚠️ 席位未随 plan 调整，可能存在不匹配`
    - 选 (c) → 仅保存 plan，不调整席位，不追加警告
 
@@ -237,7 +237,8 @@ plan 需要指向一个实际存在的 .md 文件。格式示例:
 #### 新增 role 条目
 
 依次采集:
-1. **role**:developer / reviewer / test / integrator
+1. **role**:developer / reviewer / tester / integrator
+   - `test` 作为 legacy alias 兼容输入；新写入统一为 `tester`
 2. **name**:非空、与同 role 下现有条目不重名
 3. **brief**:非空,同上方 `<role>.<name>.brief` 逻辑(无当前值可回显,跳过"保持不变"选项)
 

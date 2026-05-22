@@ -8,8 +8,8 @@ import { basename } from "path";
 import { readdirSync, statSync, existsSync } from "fs";
 import { readKanban, resolveUuid, type Task } from "./kanban-io";
 import { fromKanbanRel, waveDir } from "./paths";
-
-const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
+import { listIssues } from "./issue-io";
+import { reportFilePrefixes, roleKeys, type Role } from "./protocol";
 
 const BANNER_ICON: Record<string, string> = {
   draft: "📋",
@@ -48,7 +48,7 @@ function renderEntryTable(task: Task, hlKey?: string | null): string {
   const headers = ["Entry", "Role", "Status", "Attempt", "CWD", "Reports"];
   const rows: string[][] = [headers];
 
-  for (const rk of ROLE_KEYS) {
+  for (const rk of roleKeys()) {
     const entries = task[rk] ?? {};
     for (const [name, e] of Object.entries(entries)) {
       const entry = e as any;
@@ -86,7 +86,7 @@ function renderEntryTable(task: Task, hlKey?: string | null): string {
     .join("\n");
 }
 
-function nextHint(task: Task, hlKey?: string | null, hlRole?: string | null): string {
+function nextHint(task: Task, hlKey?: string | null, hlRole?: Role | null): string {
   if (!hlKey || !hlRole) return "";
   const entries = (task as any)[hlRole] ?? {};
   const e = entries[hlKey];
@@ -96,9 +96,10 @@ function nextHint(task: Task, hlKey?: string | null, hlRole?: string | null): st
   const devHints: Record<string, string> = {
     idle: "读 plan,依 brief 开工,完成后写 report 并转 waiting_review",
     working: "继续未完成的工作",
+    follow_issue: "读 owner 为自己的 open issue,修复后写 related_issue report",
     waiting_review: "等 reviewer。可以切到其他 worktree",
     under_review: "审查中，等待 reviewer 结论",
-    review_approved: "等 test 接力",
+    review_approved: "等 tester 接力",
     review_rejected: "读最新 review,依据修改,attempt+1",
     blocked: "读 blocked_on,先解阻塞",
     done: "无事可做",
@@ -108,7 +109,7 @@ function nextHint(task: Task, hlKey?: string | null, hlRole?: string | null): st
     working: "继续审查",
     done: "审查完成",
   };
-  const testHints: Record<string, string> = {
+  const testerHints: Record<string, string> = {
     idle: "若所有 dev 都 review_approved,合并测试",
     working: "继续测试",
     waiting: "等待 dev 修复后回测",
@@ -123,7 +124,7 @@ function nextHint(task: Task, hlKey?: string | null, hlRole?: string | null): st
   let tip = "(无默认建议,人工决定)";
   if (hlRole === "developer") tip = devHints[status] ?? tip;
   else if (hlRole === "reviewer") tip = reviewerHints[status] ?? tip;
-  else if (hlRole === "test") tip = testHints[status] ?? tip;
+  else if (hlRole === "tester") tip = testerHints[status] ?? tip;
   else if (hlRole === "integrator") tip = integratorHints[status] ?? tip;
 
   return `📍 当前身份: ${hlKey} (${hlRole})\n   当前 status: ${status}\n   建议:${tip}`;
@@ -132,8 +133,12 @@ function nextHint(task: Task, hlKey?: string | null, hlRole?: string | null): st
 function listReports(repo: string, uuid: string): string[] {
   const dir = waveDir(repo, uuid);
   if (!existsSync(dir)) return [];
+  const prefixes = roleKeys()
+    .map((role) => reportFilePrefixes[role])
+    .join("|");
+  const reportPattern = new RegExp(`^(${prefixes})-.*\\.md$`);
   return readdirSync(dir)
-    .filter((f) => /^(report|review|test|integration)-.*\.md$/.test(f))
+    .filter((f) => reportPattern.test(f))
     .map((f) => ({ name: f, mtime: statSync(`${dir}/${f}`).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime)
     .map((x) => `  ${humanAgo(new Date(x.mtime).toISOString()).padEnd(8)}  ${x.name}`);
@@ -165,7 +170,7 @@ function findMatchingSubPlan(subPlans: string[], key?: string | null): string | 
 
 function buildIdleStations(task: Task): Record<string, Array<{ stationName: string; brief: string; blockedOn?: string | null }>> {
   const idleStations: Record<string, Array<{ stationName: string; brief: string; blockedOn?: string | null }>> = {};
-  for (const rk of ROLE_KEYS) {
+  for (const rk of roleKeys()) {
     const entries = task[rk] ?? {};
     for (const [name, e] of Object.entries(entries)) {
       const entry = e as any;
@@ -182,8 +187,8 @@ function buildIdleStations(task: Task): Record<string, Array<{ stationName: stri
   return idleStations;
 }
 
-function findCurrentEntry(task: Task, cwd: string): { key: string; role: string } | null {
-  for (const rk of ROLE_KEYS) {
+function findCurrentEntry(task: Task, cwd: string): { key: string; role: Role } | null {
+  for (const rk of roleKeys()) {
     const entries = task[rk] ?? {};
     for (const [name, e] of Object.entries(entries)) {
       const entry = e as any;
@@ -191,7 +196,7 @@ function findCurrentEntry(task: Task, cwd: string): { key: string; role: string 
     }
   }
   // Fallback: match by key name
-  for (const rk of ROLE_KEYS) {
+  for (const rk of roleKeys()) {
     if (task[rk]?.[cwd]) return { key: cwd, role: rk };
   }
   return null;
@@ -268,6 +273,16 @@ async function main() {
 
   const hint = nextHint(task, hlKey, hlRole);
   if (hint) out += "\n" + hint + "\n";
+
+  const openIssues = listIssues(task.repo, uuid!, { status: "open" });
+  if (openIssues.length > 0) {
+    out += "\nOpen Issues:\n";
+    for (const issue of openIssues.slice(0, 10)) {
+      const owner = issue.owner ? ` owner=${issue.owner}` : "";
+      const summary = issue.summary ? ` — ${issue.summary.slice(0, 120)}` : "";
+      out += `  - ${issue.file}${owner}: ${issue.title}${summary}\n`;
+    }
+  }
 
   const reports = listReports(task.repo, uuid!);
   if (reports.length > 0) {

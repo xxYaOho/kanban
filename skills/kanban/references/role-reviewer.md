@@ -4,7 +4,7 @@
 
 ## 职责
 
-评审所有 `status == "waiting_review"` 的 developer 条目。对每份 dev report 给出 **approve** 或 **reject** 决定,写 **review 文档**,原子更新对应 developer 条目的 `review` 字段与 `status`。
+评审所有 `status == "waiting_review"` 的 developer 条目。对每份 dev report 给出 **approve** 或 **reject** 决定,写 **review 文档**,原子更新对应 developer 条目的 `review` 字段与 `status`。若 dev report 含 `related_issue`,reject 时 developer 回到 `follow_issue`,不是普通 `review_rejected`。
 
 Reviewer 不绑定 worktree，可在任意目录注册后工作。注册示例：
 
@@ -21,7 +21,7 @@ enter
 │
 ├─ 若为空
 │   └─ 提示:没有待 review 的工作
-│      可顺带看所有 approved 状态,决定是否推进到 test
+│      可顺带看所有 approved 状态,决定是否推进到 tester
 │
 └─ 对每个 waiting_review 的条目:
     ├─ 读 report-<name>-<NN>.md (任务目录下)
@@ -37,6 +37,7 @@ enter
 3. **测试可行性**:至少关键路径有 unit/integration 覆盖,或报告里解释为何不做
 4. **兼容性**:不破坏其他 developer 的合并基线;不碰 plan.md
 5. **报告完整性**:dev report frontmatter 字段齐全
+   - 修复 open issue 的 report 必须包含 `related_issue: issue-*.md`
 
 ## 提交 review
 
@@ -60,12 +61,20 @@ enter
        --set pass='["<dev-name>"]' \
        --set report=review-summary-<NN>.md
      ```
-   - reject（更新 developer 状态 + 写入 review 路径）:
+   - reject（普通实现回绝:更新 developer 状态 + 写入 review 路径）:
      ```bash
      bun run $SCRIPTS/agent-write.ts \
        --thread <uuid> \
        --worktree <dev-name> \
        --set status=review_rejected \
+       --set review=review-<dev-name>-<NN>.md
+     ```
+   - reject（若对应 dev report 含 `related_issue`）:
+     ```bash
+     bun run $SCRIPTS/agent-write.ts \
+       --thread <uuid> \
+       --worktree <dev-name> \
+       --set status=follow_issue \
        --set review=review-<dev-name>-<NN>.md
      ```
      - 同时在 review 正文里列出具体要改的点
@@ -75,7 +84,7 @@ enter
    ❌ dev-gui  被 rejected (attempt 02) — 3 条改动要求
    下一步:
      - dev-gui 重新工作
-     - 若所有 dev worktree approved,通知 test 上场
+    - 若所有 dev worktree approved,通知 tester 上场
    ```
 
 ## MANDATORY COMPLETION CHECKLIST (Standard Review)
@@ -90,14 +99,14 @@ enter
 4. **原子更新 kanban 状态**（approve 或 reject，按上方命令执行）
 
 > 对话中的评审意见不是交付。磁盘上的 review 文件才是正式记录。
-> 其他 Agent（developer、test、integrator）只能通过文件系统读取你的评审结果。
+> 其他 Agent（developer、tester、integrator）只能通过文件系统读取你的评审结果。
 
 ## 推进任务
 
 当**所有** developer 条目都进入 `review_approved`:
 - 不要直接把任务设 `done`
-- 让 test 接力;test 通过后将各 developer 设为 `done`
-- 若没有 test 条目(极少数情况),reviewer 可直接将各 developer 设为 `done`:
+- 让 tester 接力；tester 通过后将各 developer 设为 `done`
+- 若没有 tester 条目(极少数情况),reviewer 可直接将各 developer 设为 `done`:
   ```bash
   bun run $SCRIPTS/agent-write.ts \
     --thread <uuid> --worktree <dev-name> --set status=done

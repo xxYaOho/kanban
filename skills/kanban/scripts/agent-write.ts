@@ -6,7 +6,7 @@
  *   bun run agent-write.ts --thread <uuid> --worktree <name> --set key=value [...]
  *
  * --thread    任务 UUID，支持短前缀（≥6 字符）
- * --worktree  目标 worktree 名（在 developer/reviewer/test/integrator 中查找）
+ * --worktree  目标 worktree 名（在 developer/reviewer/tester/integrator 中查找）
  * --set       字段赋值，可多次传入。数组字段传 JSON 字符串。
  * --append-reports <scope>=<json>  向 developer.reports 追加条目
  *
@@ -16,15 +16,21 @@ import { withKanbanLock } from "./kanban-lock";
 import {
   resolveUuid,
   type Kanban,
+  type Task,
   type DevStatus,
   type IntegratorStatus,
   type ReviewerStatus,
-  type TestStatus,
+  type TesterStatus,
   VALID_DEV_STATUSES,
   VALID_REVIEWER_STATUSES,
-  VALID_TEST_STATUSES,
+  VALID_TESTER_STATUSES,
   VALID_INTEGRATOR_STATUSES,
 } from "./kanban-io";
+import { readFileSync } from "fs";
+import { basename } from "path";
+import { fromKanbanRel, waveDir } from "./paths";
+import { hasRelatedIssueReference, listIssues } from "./issue-io";
+import { roleKeys, type Role } from "./protocol";
 
 // ── 白名单 ──────────────────────────────────────────────────────────────────
 
@@ -35,19 +41,19 @@ const AGENT_WRITABLE_FIELDS = new Set([
   "blocked_on",   // developer
   "reports",      // developer (JSON array)
   "review",       // developer (string)
-  "pass",         // reviewer + test
-  "fail",         // test
-  "report",       // reviewer + test + integrator (string)
+  "pass",         // reviewer + tester
+  "fail",         // tester
+  "report",       // reviewer + tester + integrator (string)
   "merged",       // integrator
   "conflicts",    // integrator
 ]);
 
-type AgentStatus = DevStatus | ReviewerStatus | TestStatus | IntegratorStatus;
+type AgentStatus = DevStatus | ReviewerStatus | TesterStatus | IntegratorStatus;
 
 const ALL_VALID_STATUSES = new Set<AgentStatus>([
   ...VALID_DEV_STATUSES,
   ...VALID_REVIEWER_STATUSES,
-  ...VALID_TEST_STATUSES,
+  ...VALID_TESTER_STATUSES,
   ...VALID_INTEGRATOR_STATUSES,
 ]);
 
@@ -164,15 +170,67 @@ function parseValue(key: string, raw: string): unknown {
       }
     }
     default:
-      // review, report, error, blocked_on — 字符串原样
+      // review, report, error, blocked_on - 字符串原样
       return raw;
   }
 }
 
 // ── 主逻辑 ───────────────────────────────────────────────────────────────────
 
-type RoleKey = "developer" | "reviewer" | "test" | "integrator";
-const ROLE_KEYS: RoleKey[] = ["developer", "reviewer", "test", "integrator"];
+type RoleKey = Role;
+
+function extractFilename(path: string): string {
+  return basename(fromKanbanRel(path));
+}
+
+function latestReportFile(entry: Record<string, unknown>, applied: string[]): string | null {
+  for (let i = applied.length - 1; i >= 0; i--) {
+    const item = applied[i];
+    if (item.startsWith("reports.+=")) return item.slice("reports.+=".length);
+  }
+  const reports = entry["reports"];
+  if (Array.isArray(reports) && typeof reports[reports.length - 1] === "string") {
+    return reports[reports.length - 1];
+  }
+  return null;
+}
+
+function assertRelatedIssueForDevReport(
+  task: Task,
+  uuid: string,
+  worktree: string,
+  entry: Record<string, unknown>,
+  applied: string[],
+  isSubmittingReport: boolean,
+): void {
+  if (!isSubmittingReport) return;
+  if ((entry["status"] as string | undefined) !== "waiting_review") return;
+  const openIssues = listIssues(task.repo, uuid, { status: "open" })
+    .filter((issue) => issue.owner === worktree);
+  if (openIssues.length === 0) return;
+
+  const reportFile = latestReportFile(entry, applied);
+  if (!reportFile) {
+    throw new Error(
+      `developer.${worktree} 有 open issue,提交 waiting_review 必须同时写入 report 并在 frontmatter 引用 related_issue。` +
+        ` 需引用: ${openIssues.map((i) => i.file).join(", ")}`,
+    );
+  }
+
+  const reportPath = `${waveDir(task.repo, uuid)}/${extractFilename(reportFile)}`;
+  let content = "";
+  try {
+    content = readFileSync(reportPath, "utf-8");
+  } catch {
+    throw new Error(`读取 dev report 失败: ${reportPath}`);
+  }
+  if (!hasRelatedIssueReference(content, openIssues.map((i) => i.file))) {
+    throw new Error(
+      `developer.${worktree} 有 open issue,dev report frontmatter 必须包含 related_issue。` +
+        ` 需引用: ${openIssues.map((i) => i.file).join(", ")}`,
+    );
+  }
+}
 
 async function main() {
   const args = parseArgs(Bun.argv.slice(2));
@@ -193,7 +251,7 @@ async function main() {
     // 2. 在所有 role key 中查找目标 worktree
     let roleKey: RoleKey | null = null;
     let entry: Record<string, unknown> | null = null;
-    for (const rk of ROLE_KEYS) {
+    for (const rk of roleKeys()) {
       const roleEntries = task[rk] as Record<string, any> | undefined;
       if (roleEntries?.[args.worktree]) {
         roleKey = rk;
@@ -203,7 +261,7 @@ async function main() {
     }
 
     if (!entry) {
-      const existing = ROLE_KEYS.flatMap((rk) => Object.keys((task[rk] as any) ?? {}));
+      const existing = roleKeys().flatMap((rk) => Object.keys((task[rk] as any) ?? {}));
       throw new Error(
         `worktree "${args.worktree}" 不存在于任务 ${uuid.slice(0, 8)}。` +
           `现有条目: ${existing.join(", ") || "(无)"}`,
@@ -226,7 +284,7 @@ async function main() {
           applied.push(`report=${op.raw}`);
           continue;
         }
-        if (roleKey === "test" && op.key === "report") {
+        if (roleKey === "tester" && op.key === "report") {
           entry["report"] = op.raw === "null" ? "" : op.raw;
           applied.push(`report=${op.raw}`);
           continue;
@@ -265,6 +323,17 @@ async function main() {
       reports.push(filename);
       entry["reports"] = reports;
       applied.push(`reports.+=${filename}`);
+    }
+
+    if (roleKey === "developer") {
+      const isSubmittingReport =
+        args.appendReports.length > 0 ||
+        args.ops.some((op) =>
+          (op.key === "status" && op.raw === "waiting_review") ||
+          op.key === "report" ||
+          op.key === "reports"
+        );
+      assertRelatedIssueForDevReport(task, uuid, args.worktree, entry, applied, isSubmittingReport);
     }
 
     return {

@@ -53,7 +53,7 @@ const CLAUDE_MD = `# ~/.kanban/ 操作规范
 以下字段由 Agent 自主维护，人工不应覆盖：
 - developer.*.status / attempt / reports / review / error / blocked_on / cwd / worktree
 - reviewer.*.status / attempt / pass / report / error
-- test.*.status / attempt / pass / fail / report / error / cwd / worktree
+- tester.*.status / attempt / pass / fail / report / error / cwd / worktree
 - integrator.*.status / attempt / merged / conflicts / report / error / cwd / worktree
 以下字段允许人工修改（等同于 /kanban --update）：
 - status / description / plan / draft / repo / <role>.<name>.brief

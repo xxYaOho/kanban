@@ -3,6 +3,7 @@
  */
 import { homedir } from "os";
 import { join } from "path";
+import { reportFilePrefixes } from "./protocol";
 
 const KANBAN_DIR = ".kanban";
 const KANBAN_PREFIX = "~/.kanban";
@@ -40,7 +41,7 @@ export function reportPath(
   attempt: number,
 ): string {
   const nn = String(attempt).padStart(2, "0");
-  return join(waveDir(repo, uuid), `report-${worktree}-${nn}.md`);
+  return join(waveDir(repo, uuid), `${reportFilePrefixes.developer}-${worktree}-${nn}.md`);
 }
 
 export function reviewPath(
@@ -50,7 +51,7 @@ export function reviewPath(
   attempt: number,
 ): string {
   const nn = String(attempt).padStart(2, "0");
-  return join(waveDir(repo, uuid), `review-${worktree}-${nn}.md`);
+  return join(waveDir(repo, uuid), `${reportFilePrefixes.reviewer}-${worktree}-${nn}.md`);
 }
 
 export function testPath(
@@ -59,7 +60,15 @@ export function testPath(
   attempt: number,
 ): string {
   const nn = String(attempt).padStart(2, "0");
-  return join(waveDir(repo, uuid), `test-${nn}.md`);
+  return join(waveDir(repo, uuid), `${reportFilePrefixes.tester}-${nn}.md`);
+}
+
+export function issuePath(
+  repo: string,
+  uuid: string,
+  slug: string,
+): string {
+  return join(waveDir(repo, uuid), `${reportFilePrefixes.issue}-${slug}.md`);
 }
 
 /**

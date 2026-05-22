@@ -7,11 +7,12 @@
 ```bash
 /kanban --role developer "负责前端模块的 RBAC 实现"
 /kanban --role reviewer
-/kanban --role test "本轮只跑 boundary 和 security"
+/kanban --role tester "本轮只跑 boundary 和 security"
 /kanban --role integrator
 ```
 
-- `<role>` 必填位置参数:`developer` / `reviewer` / `test` / `integrator`
+- `<role>` 必填位置参数:`developer` / `reviewer` / `tester` / `integrator`
+- `test` 是 legacy alias，脚本会兼容输入，但新写入统一记录为 `tester`
 - `<context>` 可选:对应 `<role>.<name>.brief`,即这个条目要做什么
 
 ## 执行流程
@@ -26,7 +27,7 @@
 角色 `dev` 不存在(你是想选 developer 吗?)。请选择一个合法角色:
 (a) developer  — 实现分配的任务
 (b) reviewer   — 审查 developer 交付
-(c) test       — 全面测试
+(c) tester     — 全面测试
 (d) integrator — 合并分支,产出 release candidate
 (e) 取消本次注册
 ```
@@ -130,7 +131,7 @@
 | ------------- | -------------------------------------------------------------------- |
 | `developer`   | 独立完成 plan 中分配的全部任务(全栈开发,含测试)                     |
 | `reviewer`    | 审查所有 developer 的交付,确保代码质量与 plan 一致                  |
-| `test`        | 执行全面测试(security / boundary / performance / integration)        |
+| `tester`      | 执行全面测试(security / boundary / performance / integration)        |
 | `integrator`  | 合并所有 feature 分支到主干,解决冲突,产出 release candidate         |
 
 - 选项 (a)(b) 由 plan.md 内容推断生成
@@ -163,7 +164,7 @@
 | `attempt`    | `0`                       |
 | `report`     | `null`                    |
 | `review`     | `null`                    |
-| `test`       | `null`                    |
+| `tester`     | `null`                    |
 | `error`      | `null`                    |
 | `blocked_on` | `null`                    |
 
@@ -182,6 +183,7 @@
 1. 读 plan.md,找到与 brief 匹配的节；若存在 `plan-*.md` 子计划,优先读取与席位/brief 对应的子计划
 2. 脚本自动检查条件:
    - task.status ∈ {planned, in_progress} 且 blocked_on 为空 → **自动 working + attempt+1**,task.status 从 planned 提升为 in_progress(若适用)
+   - developer.status == "follow_issue" → **自动 working**,先读取 owner 为自己的 open issue 再修复
    - task.status == "draft" → 保持 idle,报告"任务尚在 draft,需先提升到 planned"
    - blocked_on 有值 → 保持 idle,报告阻塞项
 3. Agent 根据脚本输出(`autoStarted` / `autoStartReason`)生成报告
@@ -201,7 +203,7 @@
    ℹ️ 当前无待审任务,等待 developer 提交
    ```
 
-#### test
+#### tester
 
 检查当前任务下所有 developer worktree 的审查状态:
 1. 全部 `review_approved` → `✅ 所有 developer 交付已通过审查,可以开始测试`

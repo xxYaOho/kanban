@@ -30,6 +30,7 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 | `/kanban --new [<context>]`         | 从上下文创建任务(自动判别来源) |
 | `/kanban --update <uuid> [ops]`     | 交互式或快捷更新任务字段       |
 | `/kanban --thread <uuid>`           | 查询任务视图与下一步建议       |
+| `/kanban --issue <open|done|closed>` | 测试问题流转                   |
 | `/kanban --role <role> [<context>]` | 当前 worktree 自注册角色       |
 
 ## 典型工作流
@@ -60,11 +61,11 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 
    developer 完成工作 → 写 dev report → `status` 变为 `waiting_review`  
    reviewer 读取报告与 diff → 写 review report → **approve** 或 **reject**  
-   reject 时 developer 自动回到 `working` 状态继续修改
+   reject 时 developer 自动回到 `working` 状态继续修改。若 tester 创建了 open issue，owner developer 会进入 `follow_issue`，修复报告必须引用 `related_issue`。
 
 4. **测试与集成**
 
-   全部 approved 后进入 test 阶段，最终 integrator 合并并归档任务。
+   全部 approved 后进入 tester 阶段。tester 必须在自己的 worktree 合并相关 developer 分支；发现问题时先定位并创建 issue，回测通过后将 issue 归档。最终 integrator 合并并归档任务。
 
 ## 目录结构
 

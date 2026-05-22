@@ -3,7 +3,7 @@ name: kanban
 description: >
   Explicit `/kanban` task orchestration for multi-agent git worktrees. Use when the
   user invokes `/kanban`, mentions kanban/thread/task/role work, asks a
-  developer/reviewer/test/integrator seat to continue, or the current worktree is
+  developer/reviewer/tester/integrator seat to continue, or the current worktree is
   already registered. Do not treat ordinary code review requests as kanban review
   unless kanban context is explicit.
 ---
@@ -43,6 +43,7 @@ description: >
 - 所有 TS 脚本通过 `bun run $SCRIPTS/<name>.ts [args…]`
 - 写操作必须走 `scripts/kanban-lock.ts` 的 `withKanbanLock()`
 - 汇报简明：一行状态 + diff + 下一步建议，不复述全任务
+- Canonical role key 是 `tester`；旧输入 `test` 仅作为 legacy alias 兼容。报告类型 `test-report` 与文件名 `test-<NN>.md` 保持历史命名。
 
 ### 任务定位公共流程
 
@@ -59,7 +60,7 @@ description: >
 
 1. `cwdName = basename(pwd)`
 2. 遍历 kanban，找 task 满足 `task.status ∈ { planned, in_progress }`：
-   - 遍历 `developer`/`test`/`integrator` 条目，匹配 `.cwd` 字段等于 `cwdName`
+   - 遍历 `developer`/`tester`/`integrator` 条目，匹配 `.cwd` 字段等于 `cwdName`
    - 若无 cwd 匹配，回退为 key 名等于 `cwdName`（兼容旧数据）
    - `reviewer` 不参与 cwd 匹配（reviewer 不绑定 worktree）
 3. 多匹配 → 取 `updated` 最新；仍多 → AskUserQuestion 列候选
@@ -108,7 +109,7 @@ bun run $SCRIPTS/<script>.ts [args...]
 - 代码变更必须 `git commit`（本地提交到 worktree 分支）。push 行为按角色：
   - Developer：push 限自己的 feature 分支，禁止推 main/master
   - Integrator：唯一有权合并分支并 push 到 main/master
-  - Reviewer / Test：不产生代码变更，只拉取 diff 阅读
+  - Reviewer / Tester：不产生代码变更，只拉取 diff 阅读
 - 报告文件必须写入 `~/.kanban/<repo>/<uuid>/`：
   - dev report → `report-<worktree>-<NN>.md`
   - review → `review-<dev>-<NN>.md`
@@ -128,6 +129,7 @@ bun run $SCRIPTS/<script>.ts [args...]
 | `/kanban --new [<context>]` | `references/cmd-new.md` |
 | `/kanban --update <id> [ops]` | `references/cmd-update.md` |
 | `/kanban --thread <id> [<context>]` | `references/cmd-query.md`（需要数据模型时加载 `references/data-model.md`） |
+| `/kanban --issue <open|done|closed>` | `references/data-model.md` + `references/role-test.md` |
 | `/kanban --clear [<id>]` | `references/cmd-clear.md` |
 | `/kanban --role <role> [<context>]` | `references/cmd-role.md` |
 
@@ -139,7 +141,7 @@ bun run $SCRIPTS/<script>.ts [args...]
 |------|-----------|----------|
 | `developer` | `references/role-developer.md` | 条目属于 `task.developer` |
 | `reviewer` | `references/role-reviewer.md` | 条目属于 `task.reviewer` |
-| `test` | `references/role-test.md` | 条目属于 `task.test` |
+| `tester` | `references/role-test.md` | 条目属于 `task.tester` |
 | `integrator` | `references/role-integrator.md` | 条目属于 `task.integrator` |
 
 自动触发时同时加载 `references/data-model.md`。

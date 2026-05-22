@@ -21,7 +21,7 @@ import { randomUUID } from "crypto";
 import { dirname, resolve } from "path";
 import { withKanbanLock } from "./kanban-lock";
 import { waveDir, toKanbanRel } from "./paths";
-import type { Task, DevEntry, ReviewerEntry, TestEntry, IntegratorEntry } from "./kanban-io";
+import type { Task, DevEntry, ReviewerEntry, TesterEntry, IntegratorEntry } from "./kanban-io";
 import { nowIso } from "./kanban-io";
 import {
   buildMultiPlanIndex,
@@ -29,9 +29,9 @@ import {
   isMultiPlanContent,
   validatePromotableTask,
 } from "./multi-plan";
+import { normalizeRole, roleKeys } from "./protocol";
 
 type Mode = "extract" | "fromFile" | "blank";
-type RoleKey = "developer" | "reviewer" | "test" | "integrator";
 
 interface Args {
   mode: Mode;
@@ -76,21 +76,21 @@ function parseArgs(argv: string[]): Args {
 function normalizeWorktrees(raw: unknown): {
   developer: Record<string, Partial<DevEntry>>;
   reviewer: Record<string, Partial<ReviewerEntry>>;
-  test: Record<string, Partial<TestEntry>>;
+  tester: Record<string, Partial<TesterEntry>>;
   integrator: Record<string, Partial<IntegratorEntry>>;
 } {
   const out = {
     developer: {} as Record<string, Partial<DevEntry>>,
     reviewer: {} as Record<string, Partial<ReviewerEntry>>,
-    test: {} as Record<string, Partial<TestEntry>>,
+    tester: {} as Record<string, Partial<TesterEntry>>,
     integrator: {} as Record<string, Partial<IntegratorEntry>>,
   };
   if (!raw || typeof raw !== "object") return out;
   for (const [name, v] of Object.entries(raw as Record<string, any>)) {
     if (!v || typeof v !== "object") continue;
-    const role = v.role as string | undefined;
+    const role = normalizeRole(String(v.role ?? ""));
     const brief = typeof v.brief === "string" ? v.brief : (typeof v.action === "string" ? v.action : "");
-    if (!role || !["developer", "reviewer", "test", "integrator"].includes(role)) continue;
+    if (!role) continue;
     if (!brief.trim()) continue;
 
     switch (role) {
@@ -117,8 +117,8 @@ function normalizeWorktrees(raw: unknown): {
           error: null,
         };
         break;
-      case "test":
-        out.test[name] = {
+      case "tester":
+        out.tester[name] = {
           status: "idle",
           brief,
           attempt: 0,
@@ -272,7 +272,7 @@ async function main() {
       created: nowIso(),
       developer: worktrees.developer as Record<string, DevEntry>,
       reviewer: worktrees.reviewer as Record<string, ReviewerEntry>,
-      test: worktrees.test as Record<string, TestEntry>,
+      tester: worktrees.tester as Record<string, TesterEntry>,
       integrator: worktrees.integrator as Record<string, IntegratorEntry>,
     };
     const errs = validatePromotableTask(taskForValidation);
@@ -294,7 +294,7 @@ async function main() {
       created: nowIso(),
       developer: worktrees.developer as Record<string, DevEntry>,
       reviewer: worktrees.reviewer as Record<string, ReviewerEntry>,
-      test: worktrees.test as Record<string, TestEntry>,
+      tester: worktrees.tester as Record<string, TesterEntry>,
       integrator: worktrees.integrator as Record<string, IntegratorEntry>,
     };
     kanban[uuid] = task;
@@ -312,7 +312,7 @@ async function main() {
         isMultiPlan,
         status,
         entries: Object.fromEntries(
-          (["developer", "reviewer", "test", "integrator"] as const).map(
+          roleKeys().map(
             (rk) => [rk, Object.keys(worktrees[rk])],
           ),
         ),

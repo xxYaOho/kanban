@@ -21,9 +21,9 @@ import {
   VALID_TASK_STATUSES,
 } from "./kanban-io";
 import { validatePromotableTask } from "./multi-plan";
+import { normalizeRole, roleKeys, type Role } from "./protocol";
 
-const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
-type RoleKey = (typeof ROLE_KEYS)[number];
+type RoleKey = Role;
 
 // 允许的顶层路径
 const EDITABLE_TOP = new Set(["status", "description", "plan", "draft", "repo"]);
@@ -47,7 +47,6 @@ const AGENT_ROLE_FIELD = new Set([
 ]);
 
 const _validStatusSet = new Set<string>(VALID_TASK_STATUSES);
-const _validRoleSet = new Set<string>(ROLE_KEYS);
 
 type Op =
   | { kind: "set"; path: string; value: string }
@@ -70,14 +69,15 @@ function parseOps(argv: string[]): Op[] {
       const role = parts[0];
       const name = parts[1];
       const json = parts.slice(2).join(":");
-      if (!_validRoleSet.has(role)) throw new Error(`非法 role: ${role}`);
+      const normalizedRole = normalizeRole(role);
+      if (!normalizedRole) throw new Error(`非法 role: ${role}`);
       const obj = JSON.parse(json);
       if (typeof obj.brief !== "string") {
         throw new Error(`add 需要 {brief}: ${raw}`);
       }
       ops.push({
         kind: "add",
-        role: role as RoleKey,
+        role: normalizedRole,
         name,
         brief: obj.brief,
         blocked_on: obj.blocked_on ?? undefined,
@@ -89,9 +89,10 @@ function parseOps(argv: string[]): Op[] {
       if (parts.length < 2) throw new Error(`op 语法错: ${raw}，格式 del:<role>:<name>`);
       const role = parts[0];
       const name = parts.slice(1).join(":");
-      if (!_validRoleSet.has(role)) throw new Error(`非法 role: ${role}`);
+      const normalizedRole = normalizeRole(role);
+      if (!normalizedRole) throw new Error(`非法 role: ${role}`);
       if (!name) throw new Error(`op 语法错: ${raw}`);
-      ops.push({ kind: "del", role: role as RoleKey, name });
+      ops.push({ kind: "del", role: normalizedRole, name });
     } else {
       throw new Error(`未知 op: ${raw}`);
     }
@@ -102,16 +103,18 @@ function parseOps(argv: string[]): Op[] {
 function validatePath(path: string): { top?: string; roleEntry?: { role: RoleKey; name: string; field: string } } {
   if (EDITABLE_TOP.has(path)) return { top: path };
   // 匹配 developer.<name>.<field> 等
-  const m = path.match(/^(developer|reviewer|test|integrator)\.([^.]+)\.([^.]+)$/);
+  const m = path.match(/^([^.]+)\.([^.]+)\.([^.]+)$/);
   if (m) {
-    const [, role, name, field] = m;
+    const [, roleInput, name, field] = m;
+    const role = normalizeRole(roleInput);
+    if (!role) throw new Error(`未知或禁止修改的字段: ${path}`);
     if (AGENT_ROLE_FIELD.has(field)) {
       throw new Error(
         `字段 \`${role}.${name}.${field}\` 属于 Agent 自主字段,/kanban --update 不允许修改。`,
       );
     }
     if (!EDITABLE_ROLE_FIELD.has(field)) throw new Error(`未知字段: ${path}`);
-    return { roleEntry: { role: role as RoleKey, name, field } };
+    return { roleEntry: { role, name, field } };
   }
   throw new Error(`未知或禁止修改的字段: ${path}`);
 }
@@ -237,7 +240,7 @@ async function main() {
     if ((before.draft ?? null) !== (task.draft ?? null)) diff.push(`draft: ${before.draft ?? "null"} → ${task.draft ?? "null"}`);
     if (before.repo !== task.repo) diff.push(`repo: ${before.repo} → ${task.repo}`);
 
-    for (const rk of ROLE_KEYS) {
+    for (const rk of roleKeys()) {
       const bEntries = getRoleEntries(before, rk);
       const aEntries = getRoleEntries(task, rk);
       const bNames = new Set(Object.keys(bEntries));

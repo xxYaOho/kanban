@@ -4,22 +4,30 @@
 import { readFile, writeFile, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { KANBAN_FILE } from "./paths";
+import {
+  developerStatuses,
+  integratorStatuses,
+  roleKeys,
+  statusDisplayOrder,
+  taskStatuses,
+  terminalTaskStatuses,
+  testerStatuses,
+  reviewerStatuses,
+  normalizeRole,
+  type DeveloperStatus,
+  type IntegratorStatus as ProtocolIntegratorStatus,
+  type ReviewerStatus as ProtocolReviewerStatus,
+  type Role,
+  type TaskStatus as ProtocolTaskStatus,
+  type TesterStatus as ProtocolTesterStatus,
+} from "./protocol";
 
 // ---- 新角色类型 ----
 
-export type DevStatus =
-  | "idle"
-  | "working"
-  | "waiting_review"
-  | "under_review"
-  | "review_approved"
-  | "review_rejected"
-  | "done"
-  | "blocked";
-
-export type ReviewerStatus = "idle" | "working" | "done";
-export type TestStatus = "idle" | "working" | "waiting" | "done";
-export type IntegratorStatus = "idle" | "working" | "done";
+export type DevStatus = DeveloperStatus;
+export type ReviewerStatus = ProtocolReviewerStatus;
+export type TesterStatus = ProtocolTesterStatus;
+export type IntegratorStatus = ProtocolIntegratorStatus;
 
 export interface DevEntry {
   status: DevStatus;
@@ -42,8 +50,8 @@ export interface ReviewerEntry {
   error: string | null;
 }
 
-export interface TestEntry {
-  status: TestStatus;
+export interface TesterEntry {
+  status: TesterStatus;
   brief: string;
   attempt: number;
   worktree: string | null;
@@ -66,13 +74,7 @@ export interface IntegratorEntry {
   error: string | null;
 }
 
-export type TaskStatus =
-  | "draft"
-  | "planned"
-  | "in_progress"
-  | "done"
-  | "archived"
-  | "aborted";
+export type TaskStatus = ProtocolTaskStatus;
 
 export interface Task {
   status: TaskStatus;
@@ -84,8 +86,10 @@ export interface Task {
   updated?: string;
   developer: Record<string, DevEntry>;
   reviewer: Record<string, ReviewerEntry>;
-  test: Record<string, TestEntry>;
+  tester: Record<string, TesterEntry>;
   integrator: Record<string, IntegratorEntry>;
+  /** @deprecated 旧格式 test role，读取时迁移到 tester，写入时删除 */
+  test?: Record<string, TesterEntry>;
   /** @deprecated 旧格式 worktree，迁移后删除 */
   worktree?: Record<string, any>;
 }
@@ -94,45 +98,28 @@ export type Kanban = Record<string, Task>;
 
 // ---- 旧类型（仅迁移用） ----
 
-export type WorktreeRole = "developer" | "reviewer" | "test" | "integrator";
+export type WorktreeRole = Role;
+export type LegacyWorktreeRole = WorktreeRole | "test";
 
 // ---- 集中常量 ----
 
-export const VALID_ROLES: readonly WorktreeRole[] = [
-  "developer",
-  "reviewer",
-  "test",
-  "integrator",
-] as const;
+export const VALID_ROLES = roleKeys();
 
-export const VALID_TASK_STATUSES: readonly TaskStatus[] = [
-  "draft", "planned", "in_progress", "done", "archived", "aborted",
-] as const;
+export const VALID_TASK_STATUSES = taskStatuses;
 
-export const VALID_DEV_STATUSES: readonly DevStatus[] = [
-  "idle", "working", "waiting_review", "under_review",
-  "review_approved", "review_rejected", "done", "blocked",
-] as const;
+export const VALID_DEV_STATUSES = developerStatuses;
 
-export const VALID_REVIEWER_STATUSES: readonly ReviewerStatus[] = [
-  "idle", "working", "done",
-] as const;
+export const VALID_REVIEWER_STATUSES = reviewerStatuses;
 
-export const VALID_TEST_STATUSES: readonly TestStatus[] = [
-  "idle", "working", "waiting", "done",
-] as const;
+export const VALID_TESTER_STATUSES = testerStatuses;
+/** @deprecated use VALID_TESTER_STATUSES */
+export const VALID_TEST_STATUSES = VALID_TESTER_STATUSES;
 
-export const VALID_INTEGRATOR_STATUSES: readonly IntegratorStatus[] = [
-  "idle", "working", "done",
-] as const;
+export const VALID_INTEGRATOR_STATUSES = integratorStatuses;
 
-export const TERMINAL_STATUSES: readonly TaskStatus[] = [
-  "done", "archived", "aborted",
-] as const;
+export const TERMINAL_STATUSES = terminalTaskStatuses;
 
-export const STATUS_DISPLAY_ORDER: readonly TaskStatus[] = [
-  "in_progress", "planned", "draft", "done", "archived", "aborted",
-] as const;
+export const STATUS_DISPLAY_ORDER = statusDisplayOrder;
 
 const _validStatusSet = new Set<string>(VALID_TASK_STATUSES);
 
@@ -195,78 +182,81 @@ function extractReportsArray(val: unknown): string[] {
 }
 
 export function migrateTask(task: Task): void {
-  if (!task.worktree) return; // 已迁移或新格式，跳过
+  const developer: Record<string, DevEntry> = { ...(task.developer ?? {}) };
+  const reviewer: Record<string, ReviewerEntry> = { ...(task.reviewer ?? {}) };
+  const tester: Record<string, TesterEntry> = {
+    ...(task.test ?? {}),
+    ...(task.tester ?? {}),
+  };
+  const integrator: Record<string, IntegratorEntry> = { ...(task.integrator ?? {}) };
 
-  const oldWt = task.worktree;
-  const developer: Record<string, DevEntry> = {};
-  const reviewer: Record<string, ReviewerEntry> = {};
-  const test: Record<string, TestEntry> = {};
-  const integrator: Record<string, IntegratorEntry> = {};
-
-  for (const [name, wt] of Object.entries(oldWt)) {
-    const role: WorktreeRole | undefined = wt?.role;
-    switch (role) {
-      case "developer": {
-        developer[name] = {
-          status: mapDevStatus(wt.status),
-          brief: wt.action ?? wt.brief ?? "",
-          attempt: wt.attempt ?? 0,
-          blocked_on: wt.blocked_on ?? null,
-          worktree: wt.cwd ?? null,
-          cwd: wt.cwd ?? null,
-          reports: extractReportsArray(wt.report),
-          review: wt.review ? extractFilename(String(wt.review)) : null,
-          error: wt.error ?? null,
-        };
-        break;
-      }
-      case "reviewer": {
-        const mappedStatus = mapReviewerStatus(wt.status);
-        reviewer[name] = {
-          status: mappedStatus,
-          brief: wt.action ?? wt.brief ?? "",
-          attempt: wt.attempt ?? 0,
-          pass: [],
-          report: extractReportFilename(wt.report),
-          error: wt.error ?? null,
-        };
-        break;
-      }
-      case "test": {
-        test[name] = {
-          status: mapTestStatus(wt.status),
-          brief: wt.action ?? wt.brief ?? "",
-          attempt: wt.attempt ?? 0,
-          worktree: wt.cwd ?? null,
-          cwd: wt.cwd ?? null,
-          pass: [],
-          fail: [],
-          report: extractReportFilename(wt.report),
-          error: wt.error ?? null,
-        };
-        break;
-      }
-      case "integrator": {
-        integrator[name] = {
-          status: mapIntegratorStatus(wt.status),
-          brief: wt.action ?? wt.brief ?? "",
-          attempt: wt.attempt ?? 0,
-          worktree: wt.cwd ?? null,
-          cwd: wt.cwd ?? null,
-          merged: [],
-          conflicts: [],
-          report: extractReportFilename(wt.report),
-          error: wt.error ?? null,
-        };
-        break;
+  if (task.worktree) {
+    const oldWt = task.worktree;
+    for (const [name, wt] of Object.entries(oldWt)) {
+      const role = normalizeRole(String(wt?.role ?? ""));
+      switch (role) {
+        case "developer": {
+          developer[name] = {
+            status: mapDevStatus(wt.status),
+            brief: wt.action ?? wt.brief ?? "",
+            attempt: wt.attempt ?? 0,
+            blocked_on: wt.blocked_on ?? null,
+            worktree: wt.cwd ?? null,
+            cwd: wt.cwd ?? null,
+            reports: extractReportsArray(wt.report),
+            review: wt.review ? extractFilename(String(wt.review)) : null,
+            error: wt.error ?? null,
+          };
+          break;
+        }
+        case "reviewer": {
+          reviewer[name] = {
+            status: mapReviewerStatus(wt.status),
+            brief: wt.action ?? wt.brief ?? "",
+            attempt: wt.attempt ?? 0,
+            pass: [],
+            report: extractReportFilename(wt.report),
+            error: wt.error ?? null,
+          };
+          break;
+        }
+        case "tester": {
+          tester[name] = {
+            status: mapTesterStatus(wt.status),
+            brief: wt.action ?? wt.brief ?? "",
+            attempt: wt.attempt ?? 0,
+            worktree: wt.cwd ?? null,
+            cwd: wt.cwd ?? null,
+            pass: [],
+            fail: [],
+            report: extractReportFilename(wt.report),
+            error: wt.error ?? null,
+          };
+          break;
+        }
+        case "integrator": {
+          integrator[name] = {
+            status: mapIntegratorStatus(wt.status),
+            brief: wt.action ?? wt.brief ?? "",
+            attempt: wt.attempt ?? 0,
+            worktree: wt.cwd ?? null,
+            cwd: wt.cwd ?? null,
+            merged: [],
+            conflicts: [],
+            report: extractReportFilename(wt.report),
+            error: wt.error ?? null,
+          };
+          break;
+        }
       }
     }
   }
 
   task.developer = developer;
   task.reviewer = reviewer;
-  task.test = test;
+  task.tester = tester;
   task.integrator = integrator;
+  delete task.test;
   delete task.worktree;
 }
 
@@ -283,7 +273,7 @@ function mapReviewerStatus(old: unknown): ReviewerStatus {
   return "idle";
 }
 
-function mapTestStatus(old: unknown): TestStatus {
+function mapTesterStatus(old: unknown): TesterStatus {
   const s = String(old ?? "idle");
   if (s === "working") return "working";
   if (s === "waiting") return "waiting";
@@ -355,7 +345,11 @@ export async function readKanban(): Promise<Kanban> {
 }
 
 export async function writeKanban(data: Kanban): Promise<void> {
-  const serialized = JSON.stringify(data, null, 2) + "\n";
+  const canonical = structuredClone(data);
+  for (const task of Object.values(canonical)) {
+    migrateTask(task);
+  }
+  const serialized = JSON.stringify(canonical, null, 2) + "\n";
   const tmp = KANBAN_FILE + ".tmp";
   await writeFile(tmp, serialized, "utf-8");
   await rename(tmp, KANBAN_FILE);

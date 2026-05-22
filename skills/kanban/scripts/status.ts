@@ -5,8 +5,7 @@
  * 纯读。按 status 分组输出所有任务摘要。
  */
 import { readKanban, STATUS_DISPLAY_ORDER } from "./kanban-io";
-
-const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
+import { roleKeys } from "./protocol";
 
 function humanAgo(iso?: string): string {
   if (!iso) return "?";
@@ -36,13 +35,13 @@ async function main() {
         new Date(a[1].updated ?? a[1].created).getTime(),
     );
     for (const [uuid, task] of items) {
-      const entryCount = ROLE_KEYS.reduce(
+      const entryCount = roleKeys().reduce(
         (sum, rk) => sum + Object.keys(task[rk] ?? {}).length, 0,
       );
-      const active = ROLE_KEYS.reduce((sum, rk) => {
+      const active = roleKeys().reduce((sum, rk) => {
         const entries = task[rk] ?? {};
         return sum + Object.values(entries).filter(
-          (e: any) => e.status === "working" || e.status === "waiting_review",
+          (e: any) => e.status === "working" || e.status === "follow_issue" || e.status === "waiting_review",
         ).length;
       }, 0);
       out +=

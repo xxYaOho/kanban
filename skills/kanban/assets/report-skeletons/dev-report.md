@@ -7,6 +7,7 @@ attempt: 1
 created: <ISO8601>
 status_after: waiting_review
 related_plan: ~/.kanban/<repo>/<uuid>/plan.md
+related_issue: null
 branch: <git-branch>
 ---
 

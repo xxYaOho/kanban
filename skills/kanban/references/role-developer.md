@@ -23,6 +23,12 @@ enter(cwd = <worktree>)
 │      不逐节追问"是否继续",不重复展示 plan
 │      用户说"ok/可以/继续/好"时,直接开工不重新汇报状态
 │
+├─ status == "follow_issue"
+│   └─ 读任务目录下 owner 为自己的 open issue-*.md
+│      先按 Reproduction / Diagnosis 定位,再修复
+│      → bun run agent-write.ts --thread <uuid> --worktree <你> --set status=working
+│      → 修完后同 "working" 的提交流程,但 dev report 必须写 related_issue
+│
 ├─ status == "review_rejected"
 │   └─ 读最新 review-<你>-<NN>.md,依据修改
 │      → bun run agent-write.ts --thread <uuid> --worktree <你> --set status=working
@@ -47,6 +53,7 @@ enter(cwd = <worktree>)
    - `NN = current_attempt`
 2. **frontmatter + 正文**:先读 `references/frontmatter-templates.md` 的 `dev-report` 模板；实际写文件时优先使用 `assets/report-skeletons/dev-report.md`
    - 若存在对应子计划,`related_plan` 指向该 `plan-*.md`
+   - 若本次修复 open issue,`related_issue` 必须指向对应 `issue-*.md`
    - 必要时在正文 Notes 里补充主计划路径
 3. **原子提交**(两条命令,顺序执行):
    - ```bash
@@ -86,6 +93,7 @@ enter(cwd = <worktree>)
    路径：`~/.kanban/<repo>/<uuid>/report-<worktree>-<NN>.md`
    模板：先读 `references/frontmatter-templates.md`，实际写文件优先用 `assets/report-skeletons/dev-report.md`
    若有对应子计划，frontmatter 的 `related_plan` 指向对应 `plan-*.md`
+   若当前 status 是 `follow_issue` 或任务目录存在 owner 为自己的 open issue，frontmatter 必须包含 `related_issue: issue-<slug>.md`
 
 3. **原子更新 kanban 状态**
    ```bash
@@ -126,8 +134,9 @@ enter(cwd = <worktree>)
 
 ## 禁忌
 
-- ❌ 跨 worktree 写别人的 report/review/test 文件
+- ❌ 跨 worktree 写别人的 report/review/test-report 文件
 - ❌ 修改 `plan.md`(plan 变更必须走 `/kanban --update plan=...`)
-- ❌ 直接把自己置为 `done`(`done` 由 reviewer approve + test 通过后联合决定,见 role-reviewer.md)
+- ❌ 直接把自己置为 `done`(`done` 由 reviewer approve + tester 通过后联合决定,见 role-reviewer.md)
+- ❌ 修复 open issue 时提交不含 `related_issue` 的 dev report
 - ❌ 跳过 `withKanbanLock` 改 kanban.json
 - ❌ 在 `status=draft` 的任务里开工(先让用户提升到 planned)

@@ -4,7 +4,7 @@
  *
  * 参数:
  *   --worktree <name>          worktree 名(developer 必填，其他 role 可选)
- *   --role <role>              developer | reviewer | test | integrator
+ *   --role <role>              developer | reviewer | tester | integrator
  *   --brief <brief>            职责描述(非空)
  *   --thread <uuid>            目标任务 UUID
  *   --claim-from <presetName>  可选:认领预分配席位(仅 developer)
@@ -16,17 +16,15 @@ import {
   resolveUuid,
   type Kanban,
   type TaskStatus,
-  type WorktreeRole,
-  VALID_ROLES,
   TERMINAL_STATUSES,
 } from "./kanban-io";
+import { assertRole, type Role } from "./protocol";
 
-const _validRoleSet = new Set<WorktreeRole>(VALID_ROLES);
 const _terminalSet = new Set<string>(TERMINAL_STATUSES);
 
 interface Args {
   worktree: string;
-  role: WorktreeRole;
+  role: Role;
   brief: string;
   uuid: string;
   claimFrom?: string;
@@ -39,7 +37,7 @@ function parseArgs(argv: string[]): Args {
     const v = argv[i + 1];
     switch (k) {
       case "--worktree": a.worktree = v; i++; break;
-      case "--role": a.role = v as WorktreeRole; i++; break;
+      case "--role": a.role = assertRole(v); i++; break;
       case "--brief":
       case "--action": a.brief = v; i++; break; // --action 向后兼容
       case "--thread":
@@ -51,7 +49,7 @@ function parseArgs(argv: string[]): Args {
     throw new Error("developer 需要在 worktree 中注册，缺参: --worktree");
   }
   if (!a.worktree) a.worktree = "main";
-  if (!a.role || !_validRoleSet.has(a.role)) throw new Error(`非法 role: ${a.role}`);
+  if (!a.role) throw new Error("缺参: --role");
   if (!a.brief || !a.brief.trim()) throw new Error("--brief 不能为空");
   if (!a.uuid) throw new Error("缺参: --thread");
   return a as Args;
@@ -94,8 +92,6 @@ async function main() {
       );
     }
 
-    const roleKey = args.role as keyof Pick<Kanban[string], "developer" | "reviewer" | "test" | "integrator">;
-
     // ── 查找已有条目 ──
     if (args.role === "developer") {
       existingKey = Object.keys(task.developer).find(
@@ -103,8 +99,8 @@ async function main() {
       ) ?? (task.developer[args.worktree] ? args.worktree : undefined);
     } else if (args.role === "reviewer") {
       existingKey = task.reviewer[args.worktree] ? args.worktree : undefined;
-    } else if (args.role === "test") {
-      existingKey = task.test[args.worktree] ? args.worktree : undefined;
+    } else if (args.role === "tester") {
+      existingKey = task.tester[args.worktree] ? args.worktree : undefined;
     } else if (args.role === "integrator") {
       existingKey = task.integrator[args.worktree] ? args.worktree : undefined;
     }
@@ -156,7 +152,11 @@ async function main() {
           existing.worktree = args.worktree;
         }
         // Auto-start
-        if (existing.status === "idle") {
+        if (existing.status === "follow_issue") {
+          existing.status = "working";
+          existing.attempt = Math.max(existing.attempt, 1);
+          autoStarted = true;
+        } else if (existing.status === "idle") {
           if (task.status === "draft") {
             autoStartReason = "任务尚在 draft，需先提升到 planned";
           } else if (task.status === "planned" || task.status === "in_progress") {
@@ -174,8 +174,8 @@ async function main() {
         }
       } else if (args.role === "reviewer") {
         task.reviewer[existingKey].brief = args.brief;
-      } else if (args.role === "test") {
-        task.test[existingKey].brief = args.brief;
+      } else if (args.role === "tester") {
+        task.tester[existingKey].brief = args.brief;
       } else if (args.role === "integrator") {
         task.integrator[existingKey].brief = args.brief;
       }
@@ -216,8 +216,8 @@ async function main() {
           report: "",
           error: null,
         };
-      } else if (args.role === "test") {
-        task.test[args.worktree] = {
+      } else if (args.role === "tester") {
+        task.tester[args.worktree] = {
           status: "idle",
           brief: args.brief,
           attempt: 0,

@@ -2,9 +2,9 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { basename, dirname, resolve } from "path";
 import type { Task } from "./kanban-io";
 import { fromKanbanRel } from "./paths";
+import { roleKeys } from "./protocol";
 
 const MULTI_PLAN_MARKER = /\bmulti-plan\b/i;
-const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
 
 export interface PlanInspection {
   planAbs: string;
@@ -98,7 +98,7 @@ function normalizeKey(value: string): string {
 
 function allRoleEntries(task: Task): Array<{ role: string; name: string; brief: string; entry: any }> {
   const entries: Array<{ role: string; name: string; brief: string; entry: any }> = [];
-  for (const role of ROLE_KEYS) {
+  for (const role of roleKeys()) {
     for (const [name, entry] of Object.entries(task[role] ?? {})) {
       entries.push({ role, name, brief: String((entry as any).brief ?? ""), entry });
     }

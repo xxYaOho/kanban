@@ -1,8 +1,8 @@
 ---
 kind: test-report
 uuid: <uuid>
-test_worktree: <test worktree 名>
-role: test
+test_worktree: <tester worktree 名>
+role: tester
 attempt: 1
 created: <ISO8601>
 verdict: pass # pass | fail

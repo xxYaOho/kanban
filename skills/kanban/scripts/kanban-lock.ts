@@ -14,6 +14,7 @@ import { mkdirSync, existsSync } from "fs";
 import { writeFileSync } from "fs";
 import { KANBAN_FILE, LOCKS_DIR, LOCK_FILE } from "./paths";
 import { readKanban, writeKanban, Kanban, Task, nowIso } from "./kanban-io";
+import { roleKeys } from "./protocol";
 
 export interface LockOpts {
   retries?: number;
@@ -27,8 +28,6 @@ const DEFAULT_OPTS: Required<LockOpts> = {
   retryMaxMs: 400,
 };
 
-const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
-
 function taskChanged(before: Task, after: Task): boolean {
   if (before.status !== after.status
     || before.description !== after.description
@@ -37,7 +36,7 @@ function taskChanged(before: Task, after: Task): boolean {
     || before.repo !== after.repo) {
     return true;
   }
-  for (const rk of ROLE_KEYS) {
+  for (const rk of roleKeys()) {
     if (JSON.stringify((before as any)[rk]) !== JSON.stringify((after as any)[rk])) {
       return true;
     }

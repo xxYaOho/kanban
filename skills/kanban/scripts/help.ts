@@ -4,14 +4,15 @@
  * stdout: 格式化的 help + active threads 文本
  */
 import { readKanban, type Task } from "./kanban-io";
+import { roleKeys } from "./protocol";
 
 const SEP = "─".repeat(64);
 const INDENT = "      ";
-const ROLE_KEYS = ["developer", "reviewer", "test", "integrator"] as const;
 
 const STATUS_SYMBOL: Record<string, string> = {
   idle: "○",
   working: "✦",
+  follow_issue: "!",
   waiting_review: "◐",
   under_review: "◑",
   review_approved: "✓",
@@ -28,7 +29,7 @@ function padRight(s: string, w: number): string {
 function renderThread(description: string, uuid: string, task: Task): string {
   const short = uuid.slice(0, 8);
   const allEntries: Array<{ role: string; key: string; status: string; cwd: string | null }> = [];
-  for (const rk of ROLE_KEYS) {
+  for (const rk of roleKeys()) {
     const entries = task[rk] ?? {};
     for (const [key, e] of Object.entries(entries)) {
       allEntries.push({
@@ -73,7 +74,7 @@ async function main() {
     activeCount = active.length;
 
     for (const [uuid, task] of active) {
-      for (const rk of ROLE_KEYS) {
+      for (const rk of roleKeys()) {
         const entries = task[rk] ?? {};
         for (const e of Object.values(entries) as any[]) {
           if (e.status === "idle" && (e.attempt ?? 0) === 0) idleStationCount++;
@@ -100,6 +101,7 @@ async function main() {
   out += `  ${padRight("--new", 28)}${padRight("Create Thread", 22)} 创建任务\n`;
   out += `  ${padRight("--thread <id>", 28)}${padRight("Thread Details", 22)} 查看任务详情\n`;
   out += `  ${padRight("--update <id> [ops]", 28)}${padRight("Agent Update Kanban", 22)} 由 Agent 更新看板\n`;
+  out += `  ${padRight("--issue <open|done|closed>", 28)}${padRight("Issue Lifecycle", 22)} 测试问题流转\n`;
   out += `  ${padRight("--clear [<id>]", 28)}${padRight("Archive Thread", 22)} 归档终态任务\n`;
   out += `  ${padRight("--role <role>", 28)}${padRight("Get Role & Station", 22)} 获取角色与工作站\n`;
   out += `${SEP}\n`;

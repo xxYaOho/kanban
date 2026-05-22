@@ -39,7 +39,7 @@ Updated: 2026-04-18 14:32
 
 ### Entries 矩阵
 
-以表格展示所有 developer / reviewer / test / integrator 条目当前状态:
+以表格展示所有 developer / reviewer / tester / integrator 条目当前状态:
 
 ```
 Entry         Role       Status          Attempt  CWD       Reports
@@ -47,7 +47,7 @@ Entry         Role       Status          Attempt  CWD       Reports
 chat-box      developer  working         1        (same)    1
 left-sidebar  developer  review_rejected 2        dev-left  2
 review        reviewer   idle            0        -         -
-test          test       idle            0        -         -
+test          tester     idle            0        -         -
 ```
 
 ### 当前身份视角(若 cwd 是某个 worktree)
@@ -66,12 +66,13 @@ test          test       idle            0        -         -
 | --------- | ------------------ | ------------------------------------------------------ |
 | developer | idle               | 读 plan,依 brief 开工,完成后写 report 并转 waiting_review |
 | developer | working            | 继续,未完则保存进度                                    |
+| developer | follow_issue       | 读 owner 为自己的 open issue,修复后写 related_issue report |
 | developer | waiting_review     | 等 reviewer;可切别的 worktree                          |
 | developer | review_rejected    | 读最新 review-<name>-NN.md,依据修改,attempt+1         |
 | reviewer  | idle               | 检查所有 developer waiting_review 的 worktree,拉取报告 review |
 | reviewer  | working            | 继续 review                                            |
-| test      | idle               | 所有 dev worktree 都 approved 时,拉分支跑测,写 test-NN.md    |
-| integrator | idle              | 所有 dev worktree test 通过时,合并分支,写 integration-NN.md |
+| tester    | idle               | 所有 dev worktree 都 approved 时,拉分支跑测,写 test-NN.md    |
+| integrator | idle              | 所有 dev worktree 测试通过时,合并分支,写 integration-NN.md |
 | 任意      | blocked            | 读 `blocked_on` 字段,先解阻塞                         |
 
 ### Plan 与子计划索引
@@ -88,6 +89,17 @@ test          test       idle            0        -         -
   20分钟前  review-dev-gui-02.md            (reviewer 回绝)
   1小时前   report-dev-gui-02.md            (dev-gui 重试)
 ```
+
+### Open Issues 摘要
+
+若任务目录存在 `status: open` 的 `issue-*.md`,在最近报告之前展示摘要，不展开完整正文：
+
+```
+Open Issues:
+  - issue-mainline-bug-2f02a011.md owner=mainline: 压缩预览在 unchanged 场景下没有保留 receipt — 测试 unchanged 场景时...
+```
+
+需要查看细节时，Agent 直接读取对应 issue 文件。
 
 ## 实现脚本
 
