@@ -47,6 +47,47 @@
         "tells the user to promote the task to planned first",
         "does not mutate kanban state"
       ]
+    },
+    {
+      "id": "role-test-alias-normalizes-to-tester",
+      "input": "/kanban --role test from a legacy tester entry",
+      "expected": [
+        "accepts test as a legacy alias",
+        "writes canonical role as tester",
+        "does not persist task.test"
+      ]
+    },
+    {
+      "id": "query-structured-handoff-fields",
+      "input": "query.ts from reviewer, tester, and integrator cwd contexts",
+      "expected": [
+        "JSON includes currentEntry with role, key, status, and brief",
+        "JSON includes eligibleReviewTargets for waiting_review developers",
+        "JSON includes testerBlockedBy for developers not yet review_approved",
+        "JSON includes integratorBlockedBy for entries not done or blocked",
+        "JSON preserves idleStations for role seat claiming",
+        "recommendedNextAction is a short hint"
+      ]
+    },
+    {
+      "id": "issue-lifecycle-tester-canonical",
+      "input": "issue.ts open, done, and closed for a tester entry",
+      "expected": [
+        "open writes issue file and moves owner developer to follow_issue",
+        "open moves tester to waiting and records fail",
+        "done requires owner developer to be review_approved",
+        "done archives the issue and records tester pass",
+        "closed archives the issue without requiring a developer fix"
+      ]
+    },
+    {
+      "id": "follow-issue-report-requires-related-issue",
+      "input": "developer submits waiting_review while an owner open issue exists",
+      "expected": [
+        "agent-write rejects a dev report without related_issue",
+        "the error names the required issue file",
+        "a dev report that references related_issue can proceed"
+      ]
     }
   ]
 }

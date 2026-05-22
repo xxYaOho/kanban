@@ -84,6 +84,8 @@ bun run $SCRIPTS/issue.ts open \
 
 ## 提交 test report
 
+先遵守 `references/shared-delivery-contract.md` 的固定顺序。
+
 `test-report` 是报告类型名，`test-<NN>.md` 是历史文件名前缀，`issue.ts --test` 是保留参数名；role key 仍是 `tester`。
 
 1. **文件名**:`~/.kanban/<repo>/<uuid>/test-<NN>.md`
@@ -135,15 +137,12 @@ bun run $SCRIPTS/issue.ts open \
 
 ## MANDATORY COMPLETION CHECKLIST
 
----
-
-在对话中汇报 tester verdict 之前，**必须**完成以下全部步骤：
+在对话中汇报 tester verdict 之前，必须完成 `references/shared-delivery-contract.md`，并额外满足 tester 的验证要求:
 
 1. **验证前置条件**：所有 developer worktree 处于 `review_approved` 状态
 2. **运行集成测试**：merge / rebase 各 dev 分支，运行测试套件
-3. **写 test report 文件到磁盘**：`~/.kanban/<repo>/<uuid>/test-<NN>.md`。先读 `references/frontmatter-templates.md`，实际写文件优先使用 `assets/report-skeletons/test-report.md`
-4. **失败时创建 issue**：必须写清 reproduction、expected / actual、diagnosis、owner、blocker、retest plan
-5. **原子更新 kanban 状态**（pass / fail / issue done，按上方命令执行）
+3. **失败时创建 issue**：必须写清 reproduction、expected / actual、diagnosis、owner、blocker、retest plan
+4. **原子更新 kanban 状态**（pass / fail / issue done，按上方命令执行）
 
 > 不写 test report 文件 = 测试结果不存在。对话中的结论不能替代文件记录。
 

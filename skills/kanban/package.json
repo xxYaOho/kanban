@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "bun run scripts/regression-test.ts",
     "help": "bun run scripts/help.ts",
     "init": "bun run scripts/init.ts"
   },

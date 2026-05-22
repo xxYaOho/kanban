@@ -112,6 +112,17 @@ bun run $SCRIPTS/query.ts <uuid>
 2. 不加锁读 kanban + 扫任务目录
 3. 输出最终 plain text。Agent 对 `query.ts` / `status.ts` stdout 逐字转发,不总结、不省略、不重排；尾部 `\0JSON` 块仅供 `cmd-role.md` 等内部流程读取。`/kanban` 空参数走 help 模板例外。
 
+尾部 JSON 字段:
+
+| 字段 | 用途 |
+|------|------|
+| `currentEntry` | 当前 cwd 命中的 `{ role, key, status, brief }`，未命中时为 `null` |
+| `idleStations` | 可认领的空置席位，保留给 `--role` 席位认领流程 |
+| `eligibleReviewTargets` | `developer` 中所有 `waiting_review` 条目 |
+| `testerBlockedBy` | tester 开工前仍未 `review_approved` 的 developer 条目 |
+| `integratorBlockedBy` | integrator 开工前未 `done` 或仍 blocked 的前置条目 |
+| `recommendedNextAction` | 一句话动作提示，只做引导，不替代角色手册 |
+
 ## 边界情况
 
 - UUID 找不到 → 列最近 5 个任务供用户重选

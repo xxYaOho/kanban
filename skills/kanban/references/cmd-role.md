@@ -192,28 +192,49 @@
 
 #### reviewer
 
-扫描当前任务下所有 worktree,找 `status == "waiting_review"` 的条目:
-1. 有待审项 → 列出清单:
+读取 `query.ts <uuid>` 尾部 JSON:
+
+- 看 `currentEntry.role/status`,确认自己是 reviewer
+- 看 `eligibleReviewTargets`
+- 看 `recommendedNextAction`,只作为短提示
+
+承接判断:
+
+1. `eligibleReviewTargets.length > 0` → 列出清单:
    ```
    📝 待审: dev-serve (重构命令解析器), dev-api (RBAC 中间件)
    建议: 选择一个待审项,开始 review 流程
    ```
-2. 无待审项 → 保持在 idle:
+2. `eligibleReviewTargets.length == 0` → 保持在 idle:
    ```
    ℹ️ 当前无待审任务,等待 developer 提交
    ```
 
 #### tester
 
-检查当前任务下所有 developer worktree 的审查状态:
-1. 全部 `review_approved` → `✅ 所有 developer 交付已通过审查,可以开始测试`
-2. 有未完成项 → `⚠️ 以下 worktree 尚未通过审查: dev-serve, dev-api`
+读取 `query.ts <uuid>` 尾部 JSON:
+
+- 看 `currentEntry.role/status`,确认自己是 tester
+- 看 `testerBlockedBy`
+- 看 `recommendedNextAction`,只作为短提示
+
+承接判断:
+
+1. `testerBlockedBy.length == 0` → `✅ 所有 developer 交付已通过审查,可以开始测试`
+2. `testerBlockedBy.length > 0` → `⚠️ 以下 worktree 尚未通过审查: dev-serve(working), dev-api(waiting_review)`
 
 #### integrator
 
-检查当前任务下所有 worktree 的测试完成状态:
-1. 全部就绪 → `✅ 所有分支已就绪,可以开始合并`
-2. 有未完成项 → `⚠️ 以下 worktree 尚未完成测试: dev-serve, dev-api`
+读取 `query.ts <uuid>` 尾部 JSON:
+
+- 看 `currentEntry.role/status`,确认自己是 integrator
+- 看 `integratorBlockedBy`
+- 看 `recommendedNextAction`,只作为短提示
+
+承接判断:
+
+1. `integratorBlockedBy.length == 0` → `✅ 所有分支已就绪,可以开始合并`
+2. `integratorBlockedBy.length > 0` → `⚠️ 以下条目尚未完成: developer.dev-serve(done 前状态), tester.full-test(waiting)`
 
 #### 认领席位时的输出格式
 

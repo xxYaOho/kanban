@@ -65,7 +65,7 @@ description: >
    - `reviewer` 不参与 cwd 匹配（reviewer 不绑定 worktree）
 3. 多匹配 → 取 `updated` 最新；仍多 → AskUserQuestion 列候选
 4. 记录：`key = <匹配到的条目 key>`，`role = <条目所在 role key>`
-5. 加载 `references/data-model.md` + `references/role-<role>.md` 进入工作模式
+5. 按下方「角色手册索引」加载 `references/data-model.md` + 对应角色手册进入工作模式（`tester` 仍使用 `references/role-test.md`）
 6. 后续 `agent-write.ts` 调用使用 `--worktree <key>`
 
 **草案例外**：自动触发时若 `task.status == "draft"`，**不进入工作模式**，提示：
@@ -146,7 +146,7 @@ bun run $SCRIPTS/<script>.ts [args...]
 
 自动触发时同时加载 `references/data-model.md`。
 
-报告 frontmatter 规范：`references/frontmatter-templates.md`，生成报告前读一次。实际写文件时优先使用 `assets/report-skeletons/*.md` 的对应骨架。
+共享交付顺序：`references/shared-delivery-contract.md`。报告 frontmatter 规范：`references/frontmatter-templates.md`，生成报告前读一次。实际写文件时优先使用 `assets/report-skeletons/*.md` 的对应骨架。
 
 ## 汇报风格
 

@@ -11,6 +11,17 @@ import { fromKanbanRel, waveDir } from "./paths";
 import { listIssues } from "./issue-io";
 import { reportFilePrefixes, roleKeys, type Role } from "./protocol";
 
+interface EntrySummary {
+  role: Role;
+  key: string;
+  status: string;
+  brief: string;
+  attempt: number;
+  blockedOn?: string | null;
+}
+
+type CurrentEntry = Pick<EntrySummary, "role" | "key" | "status" | "brief">;
+
 const BANNER_ICON: Record<string, string> = {
   draft: "📋",
   planned: "📋",
@@ -86,48 +97,9 @@ function renderEntryTable(task: Task, hlKey?: string | null): string {
     .join("\n");
 }
 
-function nextHint(task: Task, hlKey?: string | null, hlRole?: Role | null): string {
-  if (!hlKey || !hlRole) return "";
-  const entries = (task as any)[hlRole] ?? {};
-  const e = entries[hlKey];
-  if (!e) return "";
-  const status = e.status ?? "";
-
-  const devHints: Record<string, string> = {
-    idle: "读 plan,依 brief 开工,完成后写 report 并转 waiting_review",
-    working: "继续未完成的工作",
-    follow_issue: "读 owner 为自己的 open issue,修复后写 related_issue report",
-    waiting_review: "等 reviewer。可以切到其他 worktree",
-    under_review: "审查中，等待 reviewer 结论",
-    review_approved: "等 tester 接力",
-    review_rejected: "读最新 review,依据修改,attempt+1",
-    blocked: "读 blocked_on,先解阻塞",
-    done: "无事可做",
-  };
-  const reviewerHints: Record<string, string> = {
-    idle: "检查 developer waiting_review,开始审查",
-    working: "继续审查",
-    done: "审查完成",
-  };
-  const testerHints: Record<string, string> = {
-    idle: "若所有 dev 都 review_approved,合并测试",
-    working: "继续测试",
-    waiting: "等待 dev 修复后回测",
-    done: "测试通过",
-  };
-  const integratorHints: Record<string, string> = {
-    idle: "若测试通过,合并分支集成",
-    working: "继续集成",
-    done: "集成完成",
-  };
-
-  let tip = "(无默认建议,人工决定)";
-  if (hlRole === "developer") tip = devHints[status] ?? tip;
-  else if (hlRole === "reviewer") tip = reviewerHints[status] ?? tip;
-  else if (hlRole === "tester") tip = testerHints[status] ?? tip;
-  else if (hlRole === "integrator") tip = integratorHints[status] ?? tip;
-
-  return `📍 当前身份: ${hlKey} (${hlRole})\n   当前 status: ${status}\n   建议:${tip}`;
+function nextHint(currentEntry: CurrentEntry | null, recommendedNextAction: string): string {
+  if (!currentEntry) return "";
+  return `📍 当前身份: ${currentEntry.key} (${currentEntry.role})\n   当前 status: ${currentEntry.status}\n   建议:${recommendedNextAction}`;
 }
 
 function listReports(repo: string, uuid: string): string[] {
@@ -187,19 +159,140 @@ function buildIdleStations(task: Task): Record<string, Array<{ stationName: stri
   return idleStations;
 }
 
-function findCurrentEntry(task: Task, cwd: string): { key: string; role: Role } | null {
+function summarizeEntry(role: Role, key: string, entry: unknown): EntrySummary {
+  const e = entry as Record<string, unknown>;
+  return {
+    role,
+    key,
+    status: typeof e.status === "string" ? e.status : "",
+    brief: typeof e.brief === "string" ? e.brief : "",
+    attempt: typeof e.attempt === "number" ? e.attempt : 0,
+    ...(role === "developer" ? { blockedOn: e.blocked_on as string | null | undefined } : {}),
+  };
+}
+
+function findCurrentEntry(task: Task, cwd: string): CurrentEntry | null {
   for (const rk of roleKeys()) {
     const entries = task[rk] ?? {};
     for (const [name, e] of Object.entries(entries)) {
       const entry = e as any;
-      if (entry.cwd === cwd) return { key: name, role: rk };
+      if (entry.cwd === cwd) {
+        const summary = summarizeEntry(rk, name, entry);
+        return {
+          role: summary.role,
+          key: summary.key,
+          status: summary.status,
+          brief: summary.brief,
+        };
+      }
     }
   }
   // Fallback: match by key name
   for (const rk of roleKeys()) {
-    if (task[rk]?.[cwd]) return { key: cwd, role: rk };
+    const entry = task[rk]?.[cwd];
+    if (entry) {
+      const summary = summarizeEntry(rk, cwd, entry);
+      return {
+        role: summary.role,
+        key: summary.key,
+        status: summary.status,
+        brief: summary.brief,
+      };
+    }
   }
   return null;
+}
+
+function buildEligibleReviewTargets(task: Task): EntrySummary[] {
+  return Object.entries(task.developer ?? {})
+    .filter(([, entry]) => entry.status === "waiting_review")
+    .map(([key, entry]) => summarizeEntry("developer", key, entry));
+}
+
+function buildTesterBlockedBy(task: Task): EntrySummary[] {
+  return Object.entries(task.developer ?? {})
+    .filter(([, entry]) => entry.status !== "review_approved")
+    .map(([key, entry]) => summarizeEntry("developer", key, entry));
+}
+
+function buildIntegratorBlockedBy(task: Task): EntrySummary[] {
+  const blockers: EntrySummary[] = [];
+  for (const role of roleKeys().filter((rk) => rk !== "integrator")) {
+    for (const [key, entry] of Object.entries(task[role] ?? {})) {
+      const summary = summarizeEntry(role, key, entry);
+      if (summary.status === "blocked" || summary.status !== "done") {
+        blockers.push(summary);
+      }
+    }
+  }
+  return blockers;
+}
+
+function shortList(entries: EntrySummary[], max = 3): string {
+  const shown = entries.slice(0, max).map((entry) => `${entry.key}(${entry.status})`);
+  const suffix = entries.length > max ? ` 等 ${entries.length} 项` : "";
+  return shown.join(", ") + suffix;
+}
+
+function buildRecommendedNextAction(
+  currentEntry: CurrentEntry | null,
+  eligibleReviewTargets: EntrySummary[],
+  testerBlockedBy: EntrySummary[],
+  integratorBlockedBy: EntrySummary[],
+): string {
+  if (!currentEntry) return "当前 cwd 未匹配角色；先注册角色或切换到对应 worktree。";
+
+  if (currentEntry.role === "developer") {
+    switch (currentEntry.status) {
+      case "idle":
+        return "读取 plan.md 与匹配子计划，开始 developer 工作。";
+      case "working":
+        return "继续实现，完成后先写 dev report 再转 waiting_review。";
+      case "follow_issue":
+        return "读取 owner 为自己的 open issue，修复后提交带 related_issue 的 dev report。";
+      case "waiting_review":
+        return "等待 reviewer 审查，可切换其他 worktree。";
+      case "under_review":
+        return "等待 reviewer 结论。";
+      case "review_approved":
+        return "等待 tester 接力。";
+      case "review_rejected":
+        return "读取最新 review，修复后再次提交 dev report。";
+      case "blocked":
+        return "读取 blocked_on/error，先解除阻塞。";
+      case "done":
+        return "当前 developer 已完成。";
+      default:
+        return "读取角色手册后按当前状态处理。";
+    }
+  }
+
+  if (currentEntry.role === "reviewer") {
+    if (eligibleReviewTargets.length > 0) {
+      return `审查 waiting_review 交付: ${shortList(eligibleReviewTargets)}。`;
+    }
+    return "当前无 waiting_review developer，保持等待。";
+  }
+
+  if (currentEntry.role === "tester") {
+    if (currentEntry.status === "done") return "当前 tester 已完成。";
+    if (testerBlockedBy.length > 0) {
+      return `等待 developer 通过审查: ${shortList(testerBlockedBy)}。`;
+    }
+    return "所有 developer 已通过审查，可以开始测试。";
+  }
+
+  if (currentEntry.role === "integrator") {
+    if (currentEntry.status === "done") return "当前 integrator 已完成。";
+    if (integratorBlockedBy.length > 0) {
+      const shown = integratorBlockedBy.slice(0, 3).map((entry) => `${entry.role}.${entry.key}(${entry.status})`);
+      const suffix = integratorBlockedBy.length > 3 ? ` 等 ${integratorBlockedBy.length} 项` : "";
+      return `等待前置条目完成: ${shown.join(", ")}${suffix}。`;
+    }
+    return "所有前置条目已完成，可以开始集成。";
+  }
+
+  return "读取角色手册后按当前状态处理。";
 }
 
 async function main() {
@@ -238,6 +331,15 @@ async function main() {
   const current = findCurrentEntry(task, cwd);
   const hlKey = current?.key ?? null;
   const hlRole = current?.role ?? null;
+  const eligibleReviewTargets = buildEligibleReviewTargets(task);
+  const testerBlockedBy = buildTesterBlockedBy(task);
+  const integratorBlockedBy = buildIntegratorBlockedBy(task);
+  const recommendedNextAction = buildRecommendedNextAction(
+    current,
+    eligibleReviewTargets,
+    testerBlockedBy,
+    integratorBlockedBy,
+  );
 
   const icon = BANNER_ICON[task.status] ?? "📋";
   const tag = task.status === "draft" ? "DRAFT" : task.status;
@@ -271,7 +373,7 @@ async function main() {
   out += "\nEntries:\n";
   out += renderEntryTable(task, hlKey) + "\n";
 
-  const hint = nextHint(task, hlKey, hlRole);
+  const hint = nextHint(current, recommendedNextAction);
   if (hint) out += "\n" + hint + "\n";
 
   const openIssues = listIssues(task.repo, uuid!, { status: "open" });
@@ -295,7 +397,14 @@ async function main() {
 
   // 结构化数据输出
   const idleStations = buildIdleStations(task);
-  const jsonBlock = JSON.stringify({ idleStations });
+  const jsonBlock = JSON.stringify({
+    currentEntry: current,
+    idleStations,
+    eligibleReviewTargets,
+    testerBlockedBy,
+    integratorBlockedBy,
+    recommendedNextAction,
+  });
   out += `\n\0JSON\n${jsonBlock}\n`;
 
   console.log(out);

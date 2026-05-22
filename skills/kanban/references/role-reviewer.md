@@ -41,6 +41,8 @@ enter
 
 ## 提交 review
 
+先遵守 `references/shared-delivery-contract.md` 的固定顺序。
+
 1. **文件名**:`~/.kanban/<repo>/<uuid>/review-<name>-<NN>.md`
    - NN 与对应 `report-<name>-<NN>.md` 保持一致
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `review` 模板(包括 `verdict: approve | reject` 字段)
@@ -89,14 +91,11 @@ enter
 
 ## MANDATORY COMPLETION CHECKLIST (Standard Review)
 
----
-
-对于每个 `waiting_review` 的 developer 条目，在对话中汇报 verdict 之前，**必须**完成以下全部步骤：
+对于每个 `waiting_review` 的 developer 条目，在对话中汇报 verdict 之前，必须完成 `references/shared-delivery-contract.md`，并额外满足 review 的检查要求:
 
 1. **读 dev report 文件**：`~/.kanban/<repo>/<uuid>/report-<dev>-<NN>.md`
 2. **拉取该 developer 的分支代码，查看 diff**
-3. **写 review 文件到磁盘**：`~/.kanban/<repo>/<uuid>/review-<dev>-<NN>.md`，模板见 `references/frontmatter-templates.md` 的 `review` 模板
-4. **原子更新 kanban 状态**（approve 或 reject，按上方命令执行）
+3. **写 review 文件到磁盘并更新 kanban**（approve 或 reject，按上方命令执行）
 
 > 对话中的评审意见不是交付。磁盘上的 review 文件才是正式记录。
 > 其他 Agent（developer、tester、integrator）只能通过文件系统读取你的评审结果。

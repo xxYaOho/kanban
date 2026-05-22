@@ -46,6 +46,8 @@ enter(cwd = <worktree>)
 
 ## 提交 dev report
 
+先遵守 `references/shared-delivery-contract.md` 的固定顺序。
+
 完成一次实现(或阶段性里程碑)时:
 
 1. **报告文件名**:`~/.kanban/<repo>/<uuid>/report-<worktree>-<NN>.md`
@@ -79,9 +81,7 @@ enter(cwd = <worktree>)
 
 ## MANDATORY COMPLETION CHECKLIST
 
----
-
-在对话中报告 `waiting_review` 之前，**必须**完成以下全部步骤。漏掉任何一步 = 工作未交付。对话文本是临时的，其他 Agent 看不到。
+在对话中报告 `waiting_review` 之前，必须完成 `references/shared-delivery-contract.md`，并额外满足 developer 的两项要求:
 
 1. **Commit 代码**
    ```bash
@@ -89,28 +89,10 @@ enter(cwd = <worktree>)
    ```
    commit 到当前 worktree 分支。如需 reviewer 远程拉取 diff，可 push 自己的分支，但**禁止**推 main/master。
 
-2. **写 dev report 文件到磁盘**
-   路径：`~/.kanban/<repo>/<uuid>/report-<worktree>-<NN>.md`
-   模板：先读 `references/frontmatter-templates.md`，实际写文件优先用 `assets/report-skeletons/dev-report.md`
-   若有对应子计划，frontmatter 的 `related_plan` 指向对应 `plan-*.md`
-   若当前 status 是 `follow_issue` 或任务目录存在 owner 为自己的 open issue，frontmatter 必须包含 `related_issue: issue-<slug>.md`
+2. **issue 修复报告要引用 issue**
+   若当前 status 是 `follow_issue` 或任务目录存在 owner 为自己的 open issue，dev report frontmatter 必须包含 `related_issue: issue-<slug>.md`。
 
-3. **原子更新 kanban 状态**
-   ```bash
-   bun run $SCRIPTS/agent-write.ts \
-     --thread <uuid> \
-     --worktree <你> \
-     --set status=waiting_review \
-     --set report=~/.kanban/<repo>/<uuid>/report-<你>-<NN>.md \
-     --set error=null
-   ```
-   若任务顶层 `status == "planned"` 且本次是第一个进入 working 的 worktree：
-   ```bash
-   bun run $SCRIPTS/update-task.ts <uuid> set:status=in_progress
-   ```
-
-> 第 2 步和第 3 步顺序不能颠倒：先写文件，再更新 kanban 指向它。
-> 跳过任何一步 = 工作未交付，不要说自己"做完了"。
+跳过任何一步 = 工作未交付，不要说自己"做完了"。
 
 ## 异常路径
 
