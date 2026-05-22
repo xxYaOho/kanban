@@ -104,6 +104,7 @@ async function main() {
   out += `  ${padRight("--issue <open|done|closed>", 28)}${padRight("Issue Lifecycle", 22)} 测试问题流转\n`;
   out += `  ${padRight("--clear [<id>]", 28)}${padRight("Archive Thread", 22)} 归档终态任务\n`;
   out += `  ${padRight("--role <role>", 28)}${padRight("Get Role & Station", 22)} 获取角色与工作站\n`;
+  out += `  ${padRight("--standby", 28)}${padRight("Seat Standby", 22)} 已注册席位前台待命\n`;
   out += `${SEP}\n`;
 
   out += `\nActive Threads\n`;

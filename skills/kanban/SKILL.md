@@ -27,6 +27,8 @@ description: >
 | `--update <id> [<path>=<value>…]` | 交互式或快捷更新 | `references/cmd-update.md` |
 | `--thread <id> [<context>]` | 查询任务视图 | `references/data-model.md` + `references/cmd-query.md` |
 | `--role <role> [<context>]` | 当前 worktree 自注册 | `references/cmd-role.md` |
+| `--thread <id> --role <role> [<context>] --standby` | 注册后进入席位待命 | `references/cmd-role.md` + `references/cmd-standby.md` |
+| `--standby` | 已注册席位进入待命 | `references/data-model.md` + `references/cmd-standby.md` |
 | `--clear [<id>]` | 归档终态任务 | `references/cmd-clear.md` |
 | 空 / `--help` | 运行 `help.ts`，回复简短提示 | 内置 |
 
@@ -84,6 +86,19 @@ description: >
 4. 用户确认后，运行 `bun run clear.ts --commit [<uuid>]` 执行归档
 5. 汇报结果（归档数量、清理的 repo 目录）
 
+### 路径 D：`/kanban --standby`
+
+待命是 Human 显式开启的**前台值班模式**。它不创建后台服务，不跨会话运行。当前 Agent 每 30 秒检查一次本席位是否有可行动作，最多持续 6 小时；到期回复 `已退出 Standby，请根据需要重启`。
+
+1. 若命令同时包含 `--role <role>`，先按 `references/cmd-role.md` 完成注册/认领，记录 `stableKey`。
+2. 若命令只有 `--standby`，运行 `bun run $SCRIPTS/standby-resolve.ts`，从当前 cwd 解析唯一活跃席位。
+3. 进入待命循环：调用 `standby-trigger.ts --thread <uuid> --role <role> --key <stableKey> --seen <seen>`。
+4. `ready=false` → `sleep 30` 后继续。
+5. `ready=true` → 将 `fingerprint` 追加到本会话 `seen`，按对应角色手册自动履职；完成后继续待命。
+6. 机制异常（找不到席位、脚本失败、写入失败等）→ 停止待命并汇报原因。
+
+`standby-trigger.ts` 是纯读脚本，不写 report、不改 kanban。所有正式交付仍必须遵守角色手册与共享交付合同。
+
 ## 运行时：Bun
 
 所有 TS 脚本用 Bun 执行：
@@ -132,6 +147,7 @@ bun run $SCRIPTS/<script>.ts [args...]
 | `/kanban --issue <open|done|closed>` | `references/data-model.md` + `references/role-test.md` |
 | `/kanban --clear [<id>]` | `references/cmd-clear.md` |
 | `/kanban --role <role> [<context>]` | `references/cmd-role.md` |
+| `/kanban --standby` | `references/cmd-standby.md` |
 
 ## 角色手册索引
 

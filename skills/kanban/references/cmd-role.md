@@ -9,11 +9,13 @@
 /kanban --role reviewer
 /kanban --role tester "本轮只跑 boundary 和 security"
 /kanban --role integrator
+/kanban --thread <id> --role reviewer --standby
 ```
 
 - `<role>` 必填位置参数:`developer` / `reviewer` / `tester` / `integrator`
 - `test` 是 legacy alias，脚本会兼容输入，但新写入统一记录为 `tester`
 - `<context>` 可选:对应 `<role>.<name>.brief`,即这个条目要做什么
+- `--standby` 可选:注册/认领完成后进入前台值班模式；详见 `cmd-standby.md`
 
 ## 执行流程
 
@@ -283,3 +285,5 @@ Agent 层负责交互采集(role 校验、brief 追问、任务定位),脚本只
 > **stableKey**：`role.ts` stdout 包含 `stableKey` 字段。认领席位后 Agent 应使用 stableKey
 > 作为后续 `agent-write.ts --worktree <stableKey>` 的参数，而非 `basename(pwd)`。
 > Path B 自动触发时，SKILL.md 已指示记录 stable key，同理。
+
+若用户在 `/kanban --thread <id> --role <role> ...` 后追加 `--standby`，Agent 在注册成功后读取 `stableKey`，再加载 `references/cmd-standby.md` 进入待命循环。`integrator --standby` 在 v1 中拒绝。

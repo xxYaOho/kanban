@@ -147,6 +147,41 @@ async function seedTask(home: string): Promise<string> {
   return taskDir;
 }
 
+async function seedStandbyResolutionTask(home: string): Promise<void> {
+  const root = join(home, ".kanban");
+  const secondUuid = "00000000-0000-4000-8000-000000000002";
+  const taskDir = join(root, repo, secondUuid);
+  await mkdir(taskDir, { recursive: true });
+  const data = JSON.parse(await readFile(join(root, "kanban.json"), "utf-8"));
+  data[secondUuid] = {
+    status: "planned",
+    repo,
+    description: "Second standby task",
+    draft: null,
+    plan: `~/.kanban/${repo}/${secondUuid}/plan.md`,
+    created: "2026-05-22T10:00:00+08:00",
+    updated: "2026-05-22T10:00:00+08:00",
+    developer: {
+      alpha: {
+        status: "idle",
+        brief: "Alpha duplicate cwd",
+        attempt: 0,
+        blocked_on: null,
+        worktree: "alpha",
+        cwd: "alpha",
+        reports: [],
+        review: null,
+        error: null,
+      },
+    },
+    reviewer: {},
+    tester: {},
+    integrator: {},
+  };
+  await writeFile(join(root, "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+  await writeFile(join(taskDir, "plan.md"), "# Second standby task\n", "utf-8");
+}
+
 function parseQueryJson(stdout: string): any {
   const marker = "\0JSON\n";
   const idx = stdout.indexOf(marker);
@@ -343,6 +378,194 @@ async function testRelatedIssueGuard(home: string, taskDir: string): Promise<voi
   assert(rejected.stderr.includes("related_issue"), "related issue guard should mention related_issue");
 }
 
+function parseJson(stdout: string): any {
+  return JSON.parse(stdout);
+}
+
+async function testStandbyReviewer(home: string): Promise<void> {
+  const trigger = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "reviewer",
+    "--key",
+    "review",
+  ]);
+  expectOk(trigger, "standby reviewer trigger");
+  const json = parseJson(trigger.stdout);
+  assert(json.ready === true, "reviewer should trigger on waiting_review developer");
+  assert(json.action === "review_waiting_developer", "reviewer action should be review_waiting_developer");
+  assert(json.fingerprint === "reviewer:review:review_waiting_developer:alpha:waiting_review:1:report-alpha-01.md", "reviewer fingerprint should use target developer attempt and latest report");
+
+  const seen = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "reviewer",
+    "--key",
+    "review",
+    "--seen",
+    json.fingerprint,
+  ]);
+  expectOk(seen, "standby reviewer seen");
+  const seenJson = parseJson(seen.stdout);
+  assert(seenJson.ready === false, "seen reviewer fingerprint should not retrigger");
+}
+
+async function testStandbyTesterFullTest(home: string): Promise<void> {
+  const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  data[uuid].tester.full.status = "idle";
+  data[uuid].tester.full.attempt = 0;
+  data[uuid].developer.alpha.status = "review_approved";
+  data[uuid].developer.beta.status = "review_approved";
+  data[uuid].developer.beta.reports = ["report-beta-01.md"];
+  data[uuid].developer.gamma.status = "review_approved";
+  data[uuid].developer.delta.status = "done";
+  await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+  const trigger = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "tester",
+    "--key",
+    "full",
+  ]);
+  expectOk(trigger, "standby tester full trigger");
+  const json = parseJson(trigger.stdout);
+  assert(json.ready === true, "tester should trigger when all developers are approved");
+  assert(json.action === "tester_full_test", "tester action should be tester_full_test");
+  assert(
+    json.fingerprint === "tester:full:tester_full_test:all-developers:review_approved:0:alpha:1:report-alpha-01.md|beta:1:report-beta-01.md|delta:1:report-delta-01.md|gamma:1:report-gamma-01.md",
+    "tester full fingerprint should allow done developers and use sorted developer attempt/report artifact",
+  );
+
+  data[uuid].developer.alpha.status = "done";
+  data[uuid].developer.beta.status = "done";
+  data[uuid].developer.gamma.status = "done";
+  await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+  const allDone = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "tester",
+    "--key",
+    "full",
+  ]);
+  expectOk(allDone, "standby tester all done");
+  const allDoneJson = parseJson(allDone.stdout);
+  assert(allDoneJson.ready === false, "tester should not trigger full test when all developers are already done");
+}
+
+async function testStandbyTesterRetest(home: string): Promise<void> {
+  const taskDir = join(home, ".kanban", repo, uuid);
+  const issueFile = "issue-gamma-retest.md";
+  const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  data[uuid].tester.full.status = "waiting";
+  data[uuid].tester.full.attempt = 1;
+  data[uuid].developer.gamma.status = "review_approved";
+  data[uuid].developer.gamma.reports = ["report-gamma-01.md", "report-gamma-02.md"];
+  await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+  await writeFile(join(taskDir, issueFile), [
+    "---",
+    "kind: issue",
+    "uuid: issue-gamma-retest",
+    "title: Gamma retest",
+    "status: open",
+    "type: bug",
+    "owner: gamma",
+    "created: 2026-05-22T10:00:00+08:00",
+    "updated: 2026-05-22T10:00:00+08:00",
+    "---",
+    "",
+    "## Summary",
+    "",
+    "Retest gamma.",
+    "",
+  ].join("\n"), "utf-8");
+
+  const trigger = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "tester",
+    "--key",
+    "full",
+  ]);
+  expectOk(trigger, "standby tester retest trigger");
+  const json = parseJson(trigger.stdout);
+  assert(json.ready === true, "tester should trigger retest when issue owner is approved");
+  assert(json.action === "tester_retest_issue", "tester action should be tester_retest_issue");
+  assert(json.fingerprint === "tester:full:tester_retest_issue:gamma:review_approved:1:issue-gamma-retest.md|report-gamma-02.md", "tester retest fingerprint should use issue and owner latest report");
+}
+
+async function testStandbyDeveloper(home: string): Promise<void> {
+  const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  data[uuid].developer.alpha.status = "review_rejected";
+  data[uuid].developer.alpha.review = "review-alpha-01.md";
+  data[uuid].developer.beta.status = "idle";
+  data[uuid].developer.beta.blocked_on = null;
+  data[uuid].developer.gamma.status = "follow_issue";
+  await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+  const rejected = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "developer",
+    "--key",
+    "alpha",
+  ]);
+  expectOk(rejected, "standby developer rejected");
+  assert(parseJson(rejected.stdout).action === "developer_review_rejected", "review_rejected developer should trigger rework");
+
+  const idle = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "developer",
+    "--key",
+    "beta",
+  ]);
+  expectOk(idle, "standby developer idle");
+  assert(parseJson(idle.stdout).action === "developer_start", "idle developer should trigger start");
+
+  const issue = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "developer",
+    "--key",
+    "gamma",
+  ]);
+  expectOk(issue, "standby developer issue");
+  assert(parseJson(issue.stdout).action === "developer_follow_issue", "follow_issue developer should trigger issue fix");
+}
+
+async function testStandbyResolve(home: string): Promise<void> {
+  const cwdRoot = await mkdtemp(join(tmpdir(), "kanban-standby-cwd-"));
+  const reviewCwd = join(cwdRoot, "review");
+  const missingCwd = join(cwdRoot, "missing");
+  const alphaCwd = join(cwdRoot, "alpha");
+  await mkdir(reviewCwd);
+  await mkdir(missingCwd);
+  await mkdir(alphaCwd);
+
+  const resolved = runScript(home, "standby-resolve.ts", [], reviewCwd);
+  expectOk(resolved, "standby resolve unique");
+  const json = parseJson(resolved.stdout);
+  assert(json.thread === uuid, "standby resolve should find current thread");
+  assert(json.role === "reviewer" && json.key === "review", "standby resolve should find reviewer entry");
+
+  const missing = runScript(home, "standby-resolve.ts", [], missingCwd);
+  assert(missing.exitCode !== 0, "standby resolve should fail for no candidate");
+
+  await seedStandbyResolutionTask(home);
+  const multi = runScript(home, "standby-resolve.ts", [], alphaCwd);
+  assert(multi.exitCode !== 0, "standby resolve should fail for multiple candidates");
+  assert(multi.stderr.includes("匹配多个席位"), "multiple candidate error should be explicit");
+}
+
 async function main() {
   const home = await mkdtemp(join(tmpdir(), "kanban-regression-home-"));
   try {
@@ -351,6 +574,11 @@ async function main() {
     await testRoleAlias(home);
     await testIssueLifecycle(home, taskDir);
     await testRelatedIssueGuard(home, taskDir);
+    await testStandbyReviewer(home);
+    await testStandbyTesterFullTest(home);
+    await testStandbyTesterRetest(home);
+    await testStandbyDeveloper(home);
+    await testStandbyResolve(home);
     console.log("regression tests passed");
   } finally {
     await rm(home, { recursive: true, force: true });

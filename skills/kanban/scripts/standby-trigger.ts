@@ -1,0 +1,249 @@
+#!/usr/bin/env bun
+/**
+ * Pure-read standby trigger detector.
+ *
+ * It decides whether the registered role entry has an actionable next step.
+ * It does not write kanban state or report files.
+ */
+import { assertRole, type Role } from "./protocol";
+import {
+  latestDeveloperReport,
+  loadStandbyEntry,
+  openIssuesWithOwnerStatus,
+} from "./standby-state";
+import type { DevEntry, Task } from "./kanban-io";
+
+type StandbyAction =
+  | "review_waiting_developer"
+  | "tester_full_test"
+  | "tester_retest_issue"
+  | "developer_start"
+  | "developer_review_rejected"
+  | "developer_follow_issue";
+
+interface Args {
+  uuid: string;
+  role: Role;
+  key: string;
+  seen: Set<string>;
+}
+
+interface Trigger {
+  ready: boolean;
+  role?: Role;
+  key?: string;
+  action?: StandbyAction;
+  targets?: string[];
+  fingerprint?: string;
+  reason: string;
+}
+
+function parseArgs(argv: string[]): Args {
+  const raw: Partial<{ uuid: string; role: Role; key: string; seen: string }> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const k = argv[i];
+    const v = argv[i + 1];
+    switch (k) {
+      case "--thread":
+      case "--uuid":
+        if (!v) throw new Error(`${k} 缺少值`);
+        raw.uuid = v;
+        i++;
+        break;
+      case "--role":
+        if (!v) throw new Error("--role 缺少值");
+        raw.role = assertRole(v);
+        i++;
+        break;
+      case "--key":
+      case "--worktree":
+        if (!v) throw new Error(`${k} 缺少值`);
+        raw.key = v;
+        i++;
+        break;
+      case "--seen":
+        raw.seen = v ?? "";
+        i++;
+        break;
+      default:
+        throw new Error(`未知参数: ${k}`);
+    }
+  }
+  if (!raw.uuid) throw new Error("缺少 --thread");
+  if (!raw.role) throw new Error("缺少 --role");
+  if (!raw.key) throw new Error("缺少 --key");
+  return {
+    uuid: raw.uuid,
+    role: raw.role,
+    key: raw.key,
+    seen: new Set((raw.seen ?? "").split(",").filter(Boolean)),
+  };
+}
+
+function fingerprint(
+  role: Role,
+  key: string,
+  action: StandbyAction,
+  targetKey: string,
+  targetStatus: string,
+  targetAttempt: number,
+  artifact: string,
+): string {
+  return [role, key, action, targetKey, targetStatus, String(targetAttempt), artifact || "-"].join(":");
+}
+
+function readyIfUnseen(args: Args, trigger: Omit<Trigger, "ready"> & { fingerprint: string }): Trigger {
+  if (args.seen.has(trigger.fingerprint)) {
+    return { ready: false, reason: `fingerprint already seen: ${trigger.fingerprint}` };
+  }
+  return { ready: true, ...trigger };
+}
+
+function developerEntries(task: Task): Array<[string, DevEntry]> {
+  return Object.entries(task.developer ?? {});
+}
+
+function buildFullTestArtifact(task: Task): string {
+  return developerEntries(task)
+    .map(([key, entry]) => `${key}:${entry.attempt}:${latestDeveloperReport(entry) || "-"}`)
+    .sort((a, b) => a.localeCompare(b))
+    .join("|");
+}
+
+function reviewerTrigger(args: Args, task: Task): Trigger {
+  const target = developerEntries(task)
+    .filter(([, entry]) => entry.status === "waiting_review")
+    .sort(([a], [b]) => a.localeCompare(b))[0];
+  if (!target) return { ready: false, reason: "no developer waiting_review" };
+
+  const [targetKey, entry] = target;
+  const artifact = latestDeveloperReport(entry);
+  const fp = fingerprint(args.role, args.key, "review_waiting_developer", targetKey, entry.status, entry.attempt, artifact);
+  return readyIfUnseen(args, {
+    role: args.role,
+    key: args.key,
+    action: "review_waiting_developer",
+    targets: [targetKey],
+    fingerprint: fp,
+    reason: `developer.${targetKey} is waiting_review`,
+  });
+}
+
+function testerTrigger(args: Args, uuid: string, task: Task): Trigger {
+  const tester = task.tester?.[args.key];
+  if (!tester) throw new Error(`tester.${args.key} 不存在`);
+  if (tester.status === "done") return { ready: false, reason: "tester already done" };
+
+  if (tester.status === "waiting") {
+    const issue = openIssuesWithOwnerStatus(task, uuid)
+      .filter((item) => item.ownerStatus === "review_approved")
+      .sort((a, b) => a.file.localeCompare(b.file))[0];
+    if (issue) {
+      const ownerReport = latestDeveloperReport(task.developer?.[issue.owner]);
+      const artifact = `${issue.file}|${ownerReport || "-"}`;
+      const fp = fingerprint(args.role, args.key, "tester_retest_issue", issue.owner, issue.ownerStatus, tester.attempt, artifact);
+      return readyIfUnseen(args, {
+        role: args.role,
+        key: args.key,
+        action: "tester_retest_issue",
+        targets: [issue.file],
+        fingerprint: fp,
+        reason: `open issue ${issue.file} owner ${issue.owner} is review_approved`,
+      });
+    }
+    return { ready: false, reason: "tester waiting; no open issue owner is review_approved" };
+  }
+
+  const developers = developerEntries(task);
+  const allReady = developers.length > 0 &&
+    developers.every(([, entry]) => entry.status === "review_approved" || entry.status === "done");
+  const hasNewApproved = developers.some(([, entry]) => entry.status === "review_approved");
+  if (!allReady) return { ready: false, reason: "not all developers are review_approved or done" };
+  if (!hasNewApproved) return { ready: false, reason: "all developers are already done" };
+
+  const artifact = buildFullTestArtifact(task);
+  const fp = fingerprint(args.role, args.key, "tester_full_test", "all-developers", "review_approved", tester.attempt, artifact);
+  return readyIfUnseen(args, {
+    role: args.role,
+    key: args.key,
+    action: "tester_full_test",
+    targets: ["all-developers"],
+    fingerprint: fp,
+    reason: "all developers are review_approved",
+  });
+}
+
+function developerTrigger(args: Args, uuid: string, task: Task): Trigger {
+  const dev = task.developer?.[args.key];
+  if (!dev) throw new Error(`developer.${args.key} 不存在`);
+
+  if (dev.status === "idle") {
+    if ((task.status === "planned" || task.status === "in_progress") && !dev.blocked_on) {
+      const fp = fingerprint(args.role, args.key, "developer_start", args.key, dev.status, dev.attempt, task.plan || "-");
+      return readyIfUnseen(args, {
+        role: args.role,
+        key: args.key,
+        action: "developer_start",
+        targets: [args.key],
+        fingerprint: fp,
+        reason: "developer is idle and task can start",
+      });
+    }
+    return { ready: false, reason: dev.blocked_on ? `developer blocked_on ${dev.blocked_on}` : `task status ${task.status} cannot start` };
+  }
+
+  if (dev.status === "review_rejected") {
+    const artifact = dev.review || "-";
+    const fp = fingerprint(args.role, args.key, "developer_review_rejected", args.key, dev.status, dev.attempt, artifact);
+    return readyIfUnseen(args, {
+      role: args.role,
+      key: args.key,
+      action: "developer_review_rejected",
+      targets: [args.key],
+      fingerprint: fp,
+      reason: "developer review_rejected",
+    });
+  }
+
+  if (dev.status === "follow_issue") {
+    const issue = openIssuesWithOwnerStatus(task, uuid)
+      .filter((item) => item.owner === args.key)
+      .sort((a, b) => a.file.localeCompare(b.file))[0];
+    const artifact = issue?.file ?? "-";
+    const fp = fingerprint(args.role, args.key, "developer_follow_issue", args.key, dev.status, dev.attempt, artifact);
+    return readyIfUnseen(args, {
+      role: args.role,
+      key: args.key,
+      action: "developer_follow_issue",
+      targets: issue ? [issue.file] : [args.key],
+      fingerprint: fp,
+      reason: issue ? `developer owns open issue ${issue.file}` : "developer follow_issue",
+    });
+  }
+
+  return { ready: false, reason: `developer status ${dev.status} is not actionable` };
+}
+
+async function main() {
+  const args = parseArgs(Bun.argv.slice(2));
+  if (args.role === "integrator") throw new Error("v1 不支持 integrator --standby");
+
+  const entry = await loadStandbyEntry(args.uuid, args.role, args.key);
+  let trigger: Trigger;
+  if (args.role === "reviewer") {
+    trigger = reviewerTrigger(args, entry.task);
+  } else if (args.role === "tester") {
+    trigger = testerTrigger(args, entry.uuid, entry.task);
+  } else if (args.role === "developer") {
+    trigger = developerTrigger(args, entry.uuid, entry.task);
+  } else {
+    throw new Error(`不支持的 standby role: ${args.role}`);
+  }
+
+  console.log(JSON.stringify(trigger, null, 2));
+}
+
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+});

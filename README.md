@@ -32,6 +32,7 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 | `/kanban --thread <uuid>`           | 查询任务视图与下一步建议       |
 | `/kanban --issue <open|done|closed>` | 测试问题流转                   |
 | `/kanban --role <role> [<context>]` | 当前 worktree 自注册角色       |
+| `/kanban --standby`                 | 已注册席位前台待命             |
 
 ## 典型工作流
 
@@ -57,6 +58,15 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 
    > **席位匹配**：`--new` 创建任务时，Agent 根据 plan 预规划 worktree 名称与角色。执行 `--role` 时，若当前 worktree 名与预规划不同，Agent 会自动检测同角色的空置席位并提供认领选项，避免产生孤儿条目。认领操作会将预分配名替换为你的真实 worktree 名。
 
+   需要让席位持续关注下一步时，可显式开启前台待命：
+
+   ```
+   /kanban --thread <id> --role reviewer --standby
+   /kanban --standby
+   ```
+
+   standby 默认每 30 秒检查一次，最多 6 小时；触发后由当前 Agent 按角色手册自动履职。
+
 3. **开发与评审循环**
 
    developer 完成工作 → 写 dev report → `status` 变为 `waiting_review`  
@@ -65,7 +75,9 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 
 4. **测试与集成**
 
-   全部 approved 后进入 tester 阶段。tester 必须在自己的 worktree 合并相关 developer 分支；发现问题时先定位并创建 issue，回测通过后将 issue 归档。最终 integrator 合并并归档任务。
+   所有 developer 到达 `review_approved` 或 `done` 后进入 tester 阶段。tester 必须在自己的 worktree 合并相关 developer 分支；测试通过后，tester 将本轮通过的 developer 收尾为 `done`。`developer.done` 是 tester pass 后的完成态，不再阻塞后续 tester 判断。
+
+   发现问题时，tester 先定位并创建 issue；owner developer 进入 `follow_issue`，修复后重新提交并通过 review，tester 再回测 issue。最终 integrator 合并并归档任务。
 
 ## 目录结构
 
