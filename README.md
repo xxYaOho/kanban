@@ -65,7 +65,7 @@ bun --version || curl -fsSL https://bun.sh/install | bash
    /kanban --standby
    ```
 
-   standby 默认每 30 秒检查一次，最多 6 小时；触发后由当前 Agent 按角色手册自动履职。
+   standby 由等待控制器前台轮询：启动后立即检查，空轮询间隔从 15 秒起每 5 次翻倍，封顶 240 秒，最多 100 次空轮询；触发后由当前 Agent 按角色手册自动履职。
 
 3. **开发与评审循环**
 

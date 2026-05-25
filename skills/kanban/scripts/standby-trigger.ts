@@ -12,6 +12,7 @@ import {
   openIssuesWithOwnerStatus,
 } from "./standby-state";
 import type { DevEntry, Task } from "./kanban-io";
+import { isCliEntry } from "./cli-entry";
 
 type StandbyAction =
   | "review_waiting_developer"
@@ -21,14 +22,14 @@ type StandbyAction =
   | "developer_review_rejected"
   | "developer_follow_issue";
 
-interface Args {
+export interface StandbyTriggerArgs {
   uuid: string;
   role: Role;
   key: string;
   seen: Set<string>;
 }
 
-interface Trigger {
+export interface StandbyTriggerResult {
   ready: boolean;
   role?: Role;
   key?: string;
@@ -38,7 +39,7 @@ interface Trigger {
   reason: string;
 }
 
-function parseArgs(argv: string[]): Args {
+export function parseStandbyTriggerArgs(argv: string[]): StandbyTriggerArgs {
   const raw: Partial<{ uuid: string; role: Role; key: string; seen: string }> = {};
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -92,7 +93,10 @@ function fingerprint(
   return [role, key, action, targetKey, targetStatus, String(targetAttempt), artifact || "-"].join(":");
 }
 
-function readyIfUnseen(args: Args, trigger: Omit<Trigger, "ready"> & { fingerprint: string }): Trigger {
+function readyIfUnseen(
+  args: StandbyTriggerArgs,
+  trigger: Omit<StandbyTriggerResult, "ready"> & { fingerprint: string },
+): StandbyTriggerResult {
   if (args.seen.has(trigger.fingerprint)) {
     return { ready: false, reason: `fingerprint already seen: ${trigger.fingerprint}` };
   }
@@ -110,7 +114,7 @@ function buildFullTestArtifact(task: Task): string {
     .join("|");
 }
 
-function reviewerTrigger(args: Args, task: Task): Trigger {
+function reviewerTrigger(args: StandbyTriggerArgs, task: Task): StandbyTriggerResult {
   const target = developerEntries(task)
     .filter(([, entry]) => entry.status === "waiting_review")
     .sort(([a], [b]) => a.localeCompare(b))[0];
@@ -129,7 +133,7 @@ function reviewerTrigger(args: Args, task: Task): Trigger {
   });
 }
 
-function testerTrigger(args: Args, uuid: string, task: Task): Trigger {
+function testerTrigger(args: StandbyTriggerArgs, uuid: string, task: Task): StandbyTriggerResult {
   const tester = task.tester?.[args.key];
   if (!tester) throw new Error(`tester.${args.key} 不存在`);
   if (tester.status === "done") return { ready: false, reason: "tester already done" };
@@ -173,7 +177,7 @@ function testerTrigger(args: Args, uuid: string, task: Task): Trigger {
   });
 }
 
-function developerTrigger(args: Args, uuid: string, task: Task): Trigger {
+function developerTrigger(args: StandbyTriggerArgs, uuid: string, task: Task): StandbyTriggerResult {
   const dev = task.developer?.[args.key];
   if (!dev) throw new Error(`developer.${args.key} 不存在`);
 
@@ -224,26 +228,29 @@ function developerTrigger(args: Args, uuid: string, task: Task): Trigger {
   return { ready: false, reason: `developer status ${dev.status} is not actionable` };
 }
 
-async function main() {
-  const args = parseArgs(Bun.argv.slice(2));
+export async function getStandbyTrigger(args: StandbyTriggerArgs): Promise<StandbyTriggerResult> {
   if (args.role === "integrator") throw new Error("v1 不支持 integrator --standby");
 
   const entry = await loadStandbyEntry(args.uuid, args.role, args.key);
-  let trigger: Trigger;
   if (args.role === "reviewer") {
-    trigger = reviewerTrigger(args, entry.task);
+    return reviewerTrigger(args, entry.task);
   } else if (args.role === "tester") {
-    trigger = testerTrigger(args, entry.uuid, entry.task);
+    return testerTrigger(args, entry.uuid, entry.task);
   } else if (args.role === "developer") {
-    trigger = developerTrigger(args, entry.uuid, entry.task);
-  } else {
-    throw new Error(`不支持的 standby role: ${args.role}`);
+    return developerTrigger(args, entry.uuid, entry.task);
   }
+  throw new Error(`不支持的 standby role: ${args.role}`);
+}
 
+async function main() {
+  const args = parseStandbyTriggerArgs(Bun.argv.slice(2));
+  const trigger = await getStandbyTrigger(args);
   console.log(JSON.stringify(trigger, null, 2));
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+if (isCliEntry(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

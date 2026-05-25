@@ -35,30 +35,65 @@ bun run $SCRIPTS/standby-resolve.ts
 
 默认参数：
 
-- 轮询间隔：30 秒
-- 总时长：6 小时
+- 启动后立即检查一次，不先 sleep。
+- 初始空轮询间隔：15 秒。
+- 每 5 次连续空轮询后翻倍。
+- 间隔序列：15s、30s、60s、120s、240s。
+- 最大间隔：240 秒。
+- 最多空轮询：100 次。
+- 最长等待：约 5 小时 38 分 45 秒。
 - 到期提示：`已退出 Standby，请根据需要重启`
 
-Agent 维护 `seen` 字符串，脚本不保存会话状态：
+Agent 维护 `seen` 字符串；等待计时、sleep、空轮询次数和动态间隔由 `standby-wait.ts` 管理。Agent 不在对话记忆里计算轮询次数。
 
 ```bash
-deadline=$(( $(date +%s) + 21600 ))
 seen=""
 
-while [ "$(date +%s)" -lt "$deadline" ]; do
-  trigger="$(bun run $SCRIPTS/standby-trigger.ts \
+bun run $SCRIPTS/standby-wait.ts \
     --thread <uuid> \
     --role <role> \
     --key <stableKey> \
-    --seen "$seen")"
-
-  # Agent 解析 trigger JSON:
-  # - ready=false: sleep 30
-  # - ready=true: 追加 fingerprint 到 seen，执行角色流程
-done
+    --seen "$seen"
 ```
 
-`--seen` 是逗号分隔的 fingerprint 列表。fingerprint 是不透明字符串，只做整体比对，不做字段反向解析。
+Agent 解析 stdout JSON：
+
+- `ready=true`：追加 fingerprint 到 `seen`，执行角色流程；如需继续待命，重新启动 `standby-wait.ts`。
+- `ready=false, expired=true`：回复 `已退出 Standby，请根据需要重启`。
+
+`--seen` 是逗号分隔的 fingerprint 列表。fingerprint 是不透明字符串，只做整体比对，不做字段反向解析。`seen` 暂由 Agent 会话传参维护，不写临时状态文件。
+
+`standby-wait.ts` 检测到 `ready=true` 时立即退出，计时状态随进程销毁；这是事件触发后的重置时机。角色流程结束后若继续 standby，Agent 启动新的等待控制器，新计时器从 15 秒重新开始。
+
+stdout 只用于机器可解析 JSON。stderr 只用于少量诊断（例如间隔升级、到期、异常）；不要依赖 stderr 实时进入对话，关键状态由 Agent 读取脚本结果后转述。
+
+## Wait 控制器
+
+```bash
+bun run $SCRIPTS/standby-wait.ts \
+  --thread <uuid> \
+  --role <developer|reviewer|tester> \
+  --key <stableKey> \
+  [--seen <fingerprint,...>]
+```
+
+输出 `ready=true` 时，格式与 `standby-trigger.ts` 相同。
+
+输出到期：
+
+```json
+{
+  "ready": false,
+  "expired": true,
+  "emptyPolls": 100,
+  "maxEmptyPolls": 100,
+  "totalWaitSec": 20325,
+  "reason": "standby wait reached 100 empty polls",
+  "message": "已退出 Standby，请根据需要重启"
+}
+```
+
+`standby-wait.ts` 不执行角色工作，不写 report、不改 kanban。
 
 ## Trigger 脚本
 

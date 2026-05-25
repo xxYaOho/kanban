@@ -4,6 +4,12 @@ import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
+import {
+  defaultStandbyWaitConfig,
+  runStandbyWait,
+  standbyBackoffIntervalSec,
+  standbyBackoffTotalWaitSec,
+} from "./standby-wait";
 
 const scriptsDir = import.meta.dir;
 const repo = "kanban-regression";
@@ -382,6 +388,18 @@ function parseJson(stdout: string): any {
   return JSON.parse(stdout);
 }
 
+function testStandbyWaitBackoff(): void {
+  assert(standbyBackoffIntervalSec(1) === 15, "standby wait should start at 15s");
+  assert(standbyBackoffIntervalSec(5) === 15, "standby wait should keep 15s for first 5 empty polls");
+  assert(standbyBackoffIntervalSec(6) === 30, "standby wait should use 30s after 5 empty polls");
+  assert(standbyBackoffIntervalSec(11) === 60, "standby wait should use 60s after 10 empty polls");
+  assert(standbyBackoffIntervalSec(16) === 120, "standby wait should use 120s after 15 empty polls");
+  assert(standbyBackoffIntervalSec(21) === 240, "standby wait should use 240s after 20 empty polls");
+  assert(standbyBackoffIntervalSec(100) === 240, "standby wait should cap at 240s");
+  assert(defaultStandbyWaitConfig.maxEmptyPolls === 100, "standby wait should stop after 100 empty polls");
+  assert(standbyBackoffTotalWaitSec() === 20325, "standby wait 100-poll total should be 20325s");
+}
+
 async function testStandbyReviewer(home: string): Promise<void> {
   const trigger = runScript(home, "standby-trigger.ts", [
     "--thread",
@@ -410,6 +428,22 @@ async function testStandbyReviewer(home: string): Promise<void> {
   expectOk(seen, "standby reviewer seen");
   const seenJson = parseJson(seen.stdout);
   assert(seenJson.ready === false, "seen reviewer fingerprint should not retrigger");
+}
+
+async function testStandbyWaitReady(home: string): Promise<void> {
+  const result = runScript(home, "standby-wait.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "reviewer",
+    "--key",
+    "review",
+  ]);
+  expectOk(result, "standby wait ready");
+  const json = parseJson(result.stdout);
+  assert(json.ready === true, "standby wait should return ready trigger JSON");
+  assert(json.action === "review_waiting_developer", "standby wait should preserve trigger action");
+  assert(json.fingerprint === "reviewer:review:review_waiting_developer:alpha:waiting_review:1:report-alpha-01.md", "standby wait should preserve trigger fingerprint");
 }
 
 async function testStandbyTesterFullTest(home: string): Promise<void> {
@@ -542,6 +576,25 @@ async function testStandbyDeveloper(home: string): Promise<void> {
   assert(parseJson(issue.stdout).action === "developer_follow_issue", "follow_issue developer should trigger issue fix");
 }
 
+async function testStandbyWaitExpired(): Promise<void> {
+  let sleeps = 0;
+  let sleptMs = 0;
+  let triggerCalls = 0;
+  const result = await runStandbyWait(async () => {
+    triggerCalls++;
+    return { ready: false, reason: "no actionable standby trigger" };
+  }, async (ms) => {
+    sleeps++;
+    sleptMs += ms;
+  }, { log: () => {} });
+
+  assert(result.ready === false, "standby wait should expire without a trigger");
+  assert("expired" in result && result.expired === true, "standby wait expiry should be explicit");
+  assert(triggerCalls === 100, "standby wait should check once per empty poll");
+  assert(sleeps === 100, "standby wait should sleep once per empty poll");
+  assert(sleptMs === standbyBackoffTotalWaitSec() * 1000, "standby wait should sleep according to backoff total");
+}
+
 async function testStandbyResolve(home: string): Promise<void> {
   const cwdRoot = await mkdtemp(join(tmpdir(), "kanban-standby-cwd-"));
   const reviewCwd = join(cwdRoot, "review");
@@ -574,10 +627,13 @@ async function main() {
     await testRoleAlias(home);
     await testIssueLifecycle(home, taskDir);
     await testRelatedIssueGuard(home, taskDir);
+    testStandbyWaitBackoff();
     await testStandbyReviewer(home);
+    await testStandbyWaitReady(home);
     await testStandbyTesterFullTest(home);
     await testStandbyTesterRetest(home);
     await testStandbyDeveloper(home);
+    await testStandbyWaitExpired();
     await testStandbyResolve(home);
     console.log("regression tests passed");
   } finally {

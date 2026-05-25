@@ -88,16 +88,17 @@ description: >
 
 ### 路径 D：`/kanban --standby`
 
-待命是 Human 显式开启的**前台值班模式**。它不创建后台服务，不跨会话运行。当前 Agent 每 30 秒检查一次本席位是否有可行动作，最多持续 6 小时；到期回复 `已退出 Standby，请根据需要重启`。
+待命是 Human 显式开启的**前台值班模式**。它不创建后台服务，不跨会话运行。等待控制器启动后立即检查一次；若持续没有可行动作，空轮询间隔从 15 秒起每 5 次翻倍，封顶 240 秒，最多 100 次空轮询；到期回复 `已退出 Standby，请根据需要重启`。
 
 1. 若命令同时包含 `--role <role>`，先按 `references/cmd-role.md` 完成注册/认领，记录 `stableKey`。
 2. 若命令只有 `--standby`，运行 `bun run $SCRIPTS/standby-resolve.ts`，从当前 cwd 解析唯一活跃席位。
-3. 进入待命循环：调用 `standby-trigger.ts --thread <uuid> --role <role> --key <stableKey> --seen <seen>`。
-4. `ready=false` → `sleep 30` 后继续。
-5. `ready=true` → 将 `fingerprint` 追加到本会话 `seen`，按对应角色手册自动履职；完成后继续待命。
-6. 机制异常（找不到席位、脚本失败、写入失败等）→ 停止待命并汇报原因。
+3. Agent 调用 `standby-wait.ts --thread <uuid> --role <role> --key <stableKey> --seen <seen>` 等待下一次事件。
+4. 等待期间由 `standby-wait.ts` 维护计时、sleep、空轮询次数和动态间隔；Agent 不计算第几次轮询。
+5. `standby-wait.ts` 返回 `ready=true` → 将 `fingerprint` 追加到本会话 `seen`，按对应角色手册自动履职；如需继续待命，再启动新的 `standby-wait.ts`。
+6. `standby-wait.ts` 返回 `expired=true` → 回复 `已退出 Standby，请根据需要重启`。
+7. 机制异常（找不到席位、脚本失败、写入失败等）→ 停止待命并汇报原因。
 
-`standby-trigger.ts` 是纯读脚本，不写 report、不改 kanban。所有正式交付仍必须遵守角色手册与共享交付合同。
+`standby-trigger.ts` 是纯读脚本，不写 report、不改 kanban；`standby-wait.ts` 只负责等待下一次事件，不执行角色工作。检测到 `ready=true` 时等待控制器立即退出，计时状态随进程销毁；这是事件触发后的重置时机。所有正式交付仍必须遵守角色手册与共享交付合同。
 
 ## 运行时：Bun
 
