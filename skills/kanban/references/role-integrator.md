@@ -4,7 +4,9 @@
 
 ## 职责
 
-集成是协作链的最后一环。将所有通过测试的功能分支合并回 main,解决冲突,产出可交付的 release candidate。
+集成是协作链的最后一环。将所有通过测试的功能分支合并回 main,解决冲突,产出可交付的 release candidate,并清理已完成的 git worktree。
+
+`integrator` 是职责名,不要求独立 Agent。若用户指定由 main / owner 兼任主线收尾,仍按本手册执行。
 
 ## 触发条件
 
@@ -36,10 +38,15 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 │
 ├─ 6. 编写集成报告 → integration-<NN>.md
 │
-└─ 7. 更新 kanban(锁内)
-    ├─ integrator.<你>.merged / conflicts 记录合并结果
-    ├─ integrator.<你>.status = "done"
-    └─ 任务顶层 status 可提升为 "done"
+├─ 7. 更新 kanban(锁内)
+│   ├─ integrator.<你>.merged / conflicts 记录合并结果
+│   ├─ integrator.<你>.status = "done"
+│   └─ 任务顶层 status 提升为 "done"
+│
+└─ 8. 清理已完成 worktree
+    ├─ git worktree list --porcelain
+    ├─ 移除 clean 的 developer/tester worktree
+    └─ 跳过 main、当前工作区、reviewer、dirty worktree 和无法定位的条目
 ```
 
 ## 提交 integration report
@@ -73,13 +80,24 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
      bun run $SCRIPTS/update-task.ts \
        <uuid> set:status=done
      ```
-4. **汇报**:
+4. **清理已完成 worktree**:
+   - 仅在主线合并完成、完整回归通过、integration report 已写入、任务顶层 `status=done` 后执行。
+   - 用 `git worktree list --porcelain` 查看真实 worktree 路径；按 kanban 中 developer / tester 条目的 `cwd` 或 `worktree` 名称匹配。
+   - 对 clean worktree 执行:
+     ```bash
+     git worktree remove <path>
+     ```
+   - 不删除本地分支。
+   - 跳过 `main`、当前工作区、reviewer 条目、空 `cwd`、无法定位路径的条目。
+   - 若 worktree 有未提交改动,不要 `--force`;汇报给用户确认后再处理。
+5. **汇报**:
    ```
    ✅ 集成报告已提交 (attempt 01)
       Report: integration-01.md
       Merged: feature/cli-v014-serve, feature/cli-v014-gui
       Conflicts: 3 resolved / 0 escalated
       Regression: pass
+      Cleanup: removed 2 worktrees / skipped 1 dirty worktree
       Status: working → done
    ```
 
@@ -91,6 +109,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 2. **创建集成分支并合并**：`git checkout -b integration/<tag>-attempt-<NN> main`，逐个合并功能分支
 3. **运行完整回归测试套件**
 4. **原子更新 kanban 状态**（按上方命令执行：更新自身 done / merged / conflicts，更新任务顶层 done）
+5. **清理已完成 worktree**：仅移除 clean 的 developer/tester worktree,不删除分支；dirty 或无法定位的 worktree 必须汇报
 
 > 不写 integration report = 集成未发生。所有证据必须在文件系统中。
 
@@ -127,4 +146,6 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 - ❌ 前置条件不满足时强制合并
 - ❌ 对语义冲突自行决策(必须升级给对应 developer)
 - ❌ 标记 done 前跳过回归测试
+- ❌ 在任务顶层 `status=done` 前清理 worktree
+- ❌ 对 dirty worktree 执行 `git worktree remove --force`
 - ❌ 跳过 `withKanbanLock` 改 kanban.json

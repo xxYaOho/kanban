@@ -86,6 +86,8 @@ description: >
 4. 用户确认后，运行 `bun run clear.ts --commit [<uuid>]` 执行归档
 5. 汇报结果（归档数量、清理的 repo 目录）
 
+`--clear` 只归档 `~/.kanban` 中的任务目录和状态记录,不删除真实 git worktree。真实 git worktree 清理属于 integrator / main 收尾者职责,见 `references/role-integrator.md`。
+
 ### 路径 D：`/kanban --standby`
 
 待命是 Human 显式开启的**前台值班模式**。它不创建后台服务，不跨会话运行。等待控制器启动后立即检查一次；若持续没有可行动作，空轮询间隔从 15 秒起每 5 次翻倍，封顶 240 秒，最多 100 次空轮询；到期回复 `已退出 Standby，请根据需要重启`。
@@ -116,6 +118,7 @@ bun run $SCRIPTS/<script>.ts [args...]
 - `status=draft` 的任务不应自动开工 —— plan 未定稿且条目可能未注册，应先由用户提升到 `planned`
 - `/kanban --update` 只改人工领域字段（`status/description/plan/draft/repo` 及各 role 条目的 `brief`）；Agent 领域字段必须通过 `scripts/agent-write.ts` 修改
 - `reviewer` 不绑定 worktree，注册时 `cwd = null`；`developer` 需要在 worktree 中注册
+- 真实 git worktree 清理只在主线收尾后执行:主线合并完成、完整回归通过、integration report 已写入、任务顶层 `status=done` 后,由 integrator / main 收尾者移除 clean 的 developer/tester worktree；`/kanban --clear` 不做这件事
 - `~/.kanban/.locks/` 下的文件由 `proper-lockfile` 自动管理，手动增删会导致锁库误判 stale lock
 
 ## 持久化原则

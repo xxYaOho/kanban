@@ -77,7 +77,9 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 
    所有 developer 到达 `review_approved` 或 `done` 后进入 tester 阶段。tester 必须在自己的 worktree 合并相关 developer 分支；测试通过后，tester 将本轮通过的 developer 收尾为 `done`。`developer.done` 是 tester pass 后的完成态，不再阻塞后续 tester 判断。
 
-   发现问题时，tester 先定位并创建 issue；owner developer 进入 `follow_issue`，修复后重新提交并通过 review，tester 再回测 issue。最终 integrator 合并并归档任务。
+   发现问题时，tester 先定位并创建 issue；owner developer 进入 `follow_issue`，修复后重新提交并通过 review，tester 再回测 issue。最终 integrator / main 收尾者合并主线、运行回归、提交 integration report、将任务置为 `done`，再清理已完成且干净的 developer / tester worktree。
+
+   `/kanban --clear` 只归档 `~/.kanban` 中的任务资料，不删除真实 git worktree。
 
 ## 目录结构
 
