@@ -576,6 +576,93 @@ async function testStandbyDeveloper(home: string): Promise<void> {
   assert(parseJson(issue.stdout).action === "developer_follow_issue", "follow_issue developer should trigger issue fix");
 }
 
+async function testStandbyDeveloperFollowIssueSkipsSeenIssue(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-standby-dev-issue-home-"));
+  try {
+    const taskDir = await seedTask(home);
+    const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].developer.gamma.status = "follow_issue";
+    data[uuid].developer.gamma.attempt = 2;
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    await writeFile(join(taskDir, "issue-a-seen.md"), [
+      "---",
+      "kind: issue",
+      "uuid: issue-a-seen",
+      "title: Seen issue",
+      "status: open",
+      "type: bug",
+      "owner: gamma",
+      "created: 2026-05-22T10:00:00+08:00",
+      "updated: 2026-05-22T10:00:00+08:00",
+      "---",
+      "",
+      "## Summary",
+      "",
+      "Already handled by this standby session.",
+      "",
+    ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "issue-b-new.md"), [
+      "---",
+      "kind: issue",
+      "uuid: issue-b-new",
+      "title: New issue",
+      "status: open",
+      "type: bug",
+      "owner: gamma",
+      "created: 2026-05-22T10:01:00+08:00",
+      "updated: 2026-05-22T10:01:00+08:00",
+      "---",
+      "",
+      "## Summary",
+      "",
+      "New issue should wake the developer.",
+      "",
+    ].join("\n"), "utf-8");
+
+    const seenFingerprint = "developer:gamma:developer_follow_issue:gamma:follow_issue:2:issue-a-seen.md";
+    const trigger = runScript(home, "standby-trigger.ts", [
+      "--thread",
+      uuid.slice(0, 8),
+      "--role",
+      "developer",
+      "--key",
+      "gamma",
+      "--seen",
+      seenFingerprint,
+    ]);
+    expectOk(trigger, "standby developer should skip seen issue");
+    const json = parseJson(trigger.stdout);
+    assert(json.ready === true, "developer should trigger when a later owner issue is unseen");
+    assert(json.action === "developer_follow_issue", "developer issue action should be preserved");
+    assert(json.targets?.[0] === "issue-b-new.md", "developer should target first unseen owner issue");
+    assert(
+      json.fingerprint === "developer:gamma:developer_follow_issue:gamma:follow_issue:2:issue-b-new.md",
+      "developer follow_issue fingerprint should use unseen issue file",
+    );
+
+    const allSeen = runScript(home, "standby-trigger.ts", [
+      "--thread",
+      uuid.slice(0, 8),
+      "--role",
+      "developer",
+      "--key",
+      "gamma",
+      "--seen",
+      `${seenFingerprint},developer:gamma:developer_follow_issue:gamma:follow_issue:2:issue-b-new.md`,
+    ]);
+    expectOk(allSeen, "standby developer all issues seen");
+    const allSeenJson = parseJson(allSeen.stdout);
+    assert(allSeenJson.ready === false, "developer should not trigger when every owner issue fingerprint is seen");
+    assert(
+      allSeenJson.reason.includes("all developer follow_issue fingerprints already seen"),
+      "developer all-seen reason should explain why standby stays idle",
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
 async function testStandbyWaitExpired(): Promise<void> {
   let sleeps = 0;
   let sleptMs = 0;
@@ -633,6 +720,7 @@ async function main() {
     await testStandbyTesterFullTest(home);
     await testStandbyTesterRetest(home);
     await testStandbyDeveloper(home);
+    await testStandbyDeveloperFollowIssueSkipsSeenIssue();
     await testStandbyWaitExpired();
     await testStandbyResolve(home);
     console.log("regression tests passed");

@@ -210,18 +210,37 @@ function developerTrigger(args: StandbyTriggerArgs, uuid: string, task: Task): S
   }
 
   if (dev.status === "follow_issue") {
-    const issue = openIssuesWithOwnerStatus(task, uuid)
+    const issues = openIssuesWithOwnerStatus(task, uuid)
       .filter((item) => item.owner === args.key)
-      .sort((a, b) => a.file.localeCompare(b.file))[0];
-    const artifact = issue?.file ?? "-";
-    const fp = fingerprint(args.role, args.key, "developer_follow_issue", args.key, dev.status, dev.attempt, artifact);
+      .sort((a, b) => a.file.localeCompare(b.file));
+    for (const issue of issues) {
+      const fp = fingerprint(args.role, args.key, "developer_follow_issue", args.key, dev.status, dev.attempt, issue.file);
+      if (args.seen.has(fp)) continue;
+      return {
+        ready: true,
+        role: args.role,
+        key: args.key,
+        action: "developer_follow_issue",
+        targets: [issue.file],
+        fingerprint: fp,
+        reason: `developer owns open issue ${issue.file}`,
+      };
+    }
+    if (issues.length > 0) {
+      return {
+        ready: false,
+        reason: `all developer follow_issue fingerprints already seen: ${issues.map((issue) => issue.file).join(", ")}`,
+      };
+    }
+
+    const fp = fingerprint(args.role, args.key, "developer_follow_issue", args.key, dev.status, dev.attempt, "-");
     return readyIfUnseen(args, {
       role: args.role,
       key: args.key,
       action: "developer_follow_issue",
-      targets: issue ? [issue.file] : [args.key],
+      targets: [args.key],
       fingerprint: fp,
-      reason: issue ? `developer owns open issue ${issue.file}` : "developer follow_issue",
+      reason: "developer follow_issue",
     });
   }
 
