@@ -59,6 +59,9 @@ bun run help
 
 ### 最近迭代
 
+- reviewer / tester 履职规范已加强：review 必须覆盖 plan 对齐、代码健康、测试风险；tester 必须维护 `test-cases-<NN>.md`，并用 `tester.<name>.case_document` 记录测试用例文档。
+- `frontmatter-templates.md` 正在从完整模板压缩为字段合同：保留所有 kind 的文件名、frontmatter 字段、枚举和正文段落；实际正文优先使用 `assets/report-skeletons/*.md`。
+- `role-integrator.md` 正在修正文档一致性：不要写不存在的 `integration` 字段，也不要把 integrator 置为不存在的 `blocked` 状态；异常路径记录自身 `conflicts` / `error` 并保持合法状态。
 - `query.ts` 尾部 JSON 已作为 reviewer、tester、integrator 承接决策的机器接口。
 - `tester` 是 canonical role；`test` 只保留为 legacy alias。
 - `developer.done` 是 tester pass 后的完成态，不阻塞后续 tester 判断。
@@ -68,6 +71,9 @@ bun run help
 
 ### 遗留关注
 
+- 继续前先跑 `git status --short` 和 `git diff --stat` 确认真实未提交范围；不要依赖本文记录的旧状态。
+- 压缩文档时不能删除 runtime 合同：字段白名单、状态机、脚本调用、frontmatter 字段、报告文件名、standby trigger/fingerprint 语义必须保留。
+- `frontmatter-templates.md` 不能只变成 skeleton 指针；`plan-review`、`issue`、`error-note` 没有 skeleton，必须保留字段与正文结构合同。
 - 修改 `standby-trigger.ts` 时，同时检查 `standby-wait.ts`、`standby-resolve.ts` 和 `regression-test.ts`。
 - 修改 tester 完成语义时，同时检查 `cmd-query.md`、`data-model.md`、`role-test.md`、`README.md` 和 query JSON 字段。
 - 修改 clear 或集成收尾边界时，确认没有把真实 git worktree 清理塞进 `/kanban --clear`。
@@ -77,7 +83,11 @@ bun run help
 
 ```bash
 git log --oneline -8
+git status --short
+git diff --stat
 sed -n '1,220p' skills/kanban/SKILL.md
+sed -n '1,220p' skills/kanban/references/frontmatter-templates.md
+sed -n '110,145p' skills/kanban/references/role-integrator.md
 sed -n '1,220p' skills/kanban/references/data-model.md
 bun run skills/kanban/scripts/help.ts
 ```

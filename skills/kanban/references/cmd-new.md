@@ -1,87 +1,78 @@
 # /kanban --new
 
-从上下文创建新任务。Claude 自动判断计划来源,用户无需指定模式。
+从上下文创建新任务。Agent 自动判断计划来源,用户无需指定模式。
 
 ## 命令形态
 
 ```bash
-/kanban --new                          # Claude 从当前对话抽取计划
+/kanban --new                          # 从当前对话抽取计划
 /kanban --new @docs/plan.md            # 用户通过 @ 引用了文件
 /kanban --new "~/path/to/plan.md"      # 用户提供了文件路径字符串
 /kanban --new multi-plan               # 创建可渐进扩展的 multi-plan 索引草案
 /kanban --new                          # 对话里没有计划 → 询问是否创建空白看板
 ```
 
-用户只需说 `/kanban --new`,Claude 从 `$ARGUMENTS` 和当前对话上下文中理解来源。
+## 来源判别
 
-## 来源判别逻辑
+按顺序判断:
 
-```
-/kanban --new 被触发
-│
-├─ $ARGUMENTS 明确包含 "multi-plan" 且未给出实际计划文件?
-│   └─ 是 → 【来源 D: multi-plan 索引草案】
-│           - 创建主 plan.md 索引
-│           - status=draft
-│           - worktree={}
-│           - 后续每确认一个子计划再追加 plan-<slug>.md + idle role 条目
-│
-├─ $ARGUMENTS 或对话中有文件引用(@file)或路径字符串?
-│   └─ 是 → 【来源 B: 文件导入】
-│           - 读取文件内容作为 plan
-│           - 进入「预分配席位智能分析」流程
-│
-├─ 当前对话中有 plan mode 产出的 plan 文件(如 ~/.claude/plans/*.md)?
-│   └─ 是 → 【来源 A+: plan 引用】
-│           - 脚本传 --plan-ref 指向原始文件
-│           - 不拷贝内容,plan 字段存原始路径
-│           - status=planned
-│           - 进入「预分配席位智能分析」流程
-│
-├─ 当前对话中有足够的计划内容可以抽取?
-│   └─ 是 → 【来源 A: 对话抽取】
-│           - 整理对话内容为 plan.md
-│           - status=planned
-│           - 进入「预分配席位智能分析」流程
-│
-└─ 对话中没有计划内容
-    └─ AskUserQuestion:
-       「没有找到计划内容,是否创建空白看板?」
-       (a) 是 → 【来源 C: 空白看板】status=draft,worktree={},跳过席位分析
-       (b) 否 → 取消
-```
+1. `$ARGUMENTS` 明确包含 `multi-plan` 且没有实际计划文件 → 创建 multi-plan 索引草案:
+   - `status=draft`
+   - `worktree={}`
+   - 只创建主 `plan.md`;后续每确认一个子计划再追加 `plan-<slug>.md` 和 idle role 条目
+2. `$ARGUMENTS` 或对话中有 `@file` / 路径字符串 → 文件导入:
+   - 读取文件内容作为 plan
+   - 进入预分配席位分析
+3. 当前对话中有 plan mode 产出的 plan 文件(如 `~/.claude/plans/*.md`) → plan 引用:
+   - 脚本传 `--plan-ref` 指向原始文件
+   - 不拷贝内容,`plan` 字段存原始路径
+   - `status=planned`
+   - 进入预分配席位分析
+4. 当前对话中有足够计划内容 → 对话抽取:
+   - 整理为 `plan.md`
+   - `status=planned`
+   - 进入预分配席位分析
+5. 没有计划内容 → AskUserQuestion:
+   - 是:创建空白看板,`status=draft`,`worktree={}`,跳过席位分析
+   - 否:取消
 
-## 必备字段采集
+## 字段合同
 
 无论来源,最终都要落齐:
 
-| 字段          | 来源                                                              |
-| ------------- | ----------------------------------------------------------------- |
-| `description` | 对话提炼 / 文件第一行 `# …` / AskUserQuestion                    |
-| `repo`        | 对话提到的仓库名 / `basename(pwd)` 作默认建议 / AskUserQuestion   |
-| `draft`       | 若用户提供了原始需求草稿路径,记录进去;否则 `null`                |
-| `plan`        | 按来源写入 plan.md                                                |
-| `worktree`    | 对话划分 / 文件解析 / `{}`(空白看板)                            |
+| 字段 | 来源 |
+|------|------|
+| `description` | 对话提炼 / 文件第一行 `# ...` / AskUserQuestion |
+| `repo` | 对话提到的仓库名 / `basename(pwd)` 作默认建议 / AskUserQuestion |
+| `draft` | 原始需求草稿路径;没有则 `null` |
+| `plan` | 按来源写入或引用 plan |
+| `worktree` | 对话划分 / 文件解析 / `{}` |
 
-**`draft` 字段采集时机**:若用户在 `/kanban --new` 时提到"这是草稿""参考这个文件"但该文件不是 plan 本身(例如是需求讨论文档),则把该路径记录为 `draft`。不强制询问,有则记,无则 `null`。
+`draft` 只记录原始需求草稿路径。若用户提到"这是草稿""参考这个文件"且该文件不是 plan 本身,记录该路径;不强制询问。
 
-## 产物对比
+## 产物合同
 
-| 来源       | `status`             | `plan` 文件                  | `worktree`            |
-| ---------- | -------------------- | ---------------------------- | --------------------- |
-| A+ plan 引用 | `planned`          | `--plan-ref` 引用原始路径    | 按对话划分填充        |
-| A 对话抽取 | `planned`            | 从对话整理出的完整 plan       | 按对话划分填充        |
-| B 文件导入 | `planned` 或 `draft` | 拷贝自引用文件                | 尝试解析,失败则空    |
-| C 空白看板 | `draft`              | 占位("# desc\n\n(待完善)")   | `{}`                  |
-| D multi-plan 索引草案 | `draft` | 索引式主 `plan.md`,暂不含实际子计划 | `{}` |
+| 来源 | `status` | `plan` | `worktree` |
+|------|----------|--------|------------|
+| plan 引用 | `planned` | `--plan-ref` 引用原始路径 | 按对话划分填充 |
+| 对话抽取 | `planned` | 从对话整理出的完整 plan | 按对话划分填充 |
+| 文件导入 | `planned` 或 `draft` | 拷贝自引用文件 | 尝试解析,失败则空 |
+| 空白看板 | `draft` | 占位 `# desc\n\n(待完善)` | `{}` |
+| multi-plan 索引草案 | `draft` | 索引式主 `plan.md`,暂不含实际子计划 | `{}` |
 
-**文件拷贝策略**:来源 B 将文件**拷贝**进 `~/.kanban/…/plan.md`,不保留软链接。原文件不动,kanban 自足。
+文件导入必须把文件拷贝进 `~/.kanban/.../plan.md`,不保留软链接。原文件不动,kanban 目录必须自足。
 
-**索引式 multi-plan**:若导入的 `plan.md` 包含同目录相对链接 `./plan-*.md`,或主计划明确标记 `multi-plan`,视为索引式计划结构。脚本在复制主计划时同步复制这些子计划到同一任务目录。链接指向的子计划不存在时,先报错并让用户修正计划文件,不得创建半残任务。只复制主计划同目录的一层 `plan-*.md`,不递归复制其他 Markdown 链接。
+索引式 multi-plan 合同:
 
-### Multi-plan 渐进扩展协议
+- 导入的 `plan.md` 含同目录相对链接 `./plan-*.md`,或主计划明确标记 `multi-plan`,即视为索引式计划结构。
+- thread 目录中的 `plan.md` 与同层 `plan-*.md` 是运行时真源。
+- 脚本复制主计划时同步复制同目录一层 `plan-*.md` 到任务目录。
+- 链接指向的子计划不存在时先报错,不得创建半残任务。
+- 不递归复制其他 Markdown 链接。
 
-multi-plan thread 的状态不是"全部子计划完成后才 planned":
+## Multi-plan 渐进扩展
+
+multi-plan thread 不是"全部子计划完成后才 planned":
 
 - `draft`: 只有主索引或讨论内容,尚无实际 `plan-*.md` 子计划。
 - `planned`: 至少一个实际 `plan-*.md` 子计划已确认并落盘,且有对应 idle role 条目。
@@ -95,55 +86,39 @@ multi-plan thread 的状态不是"全部子计划完成后才 planned":
 4. 若这是第一个子计划,再执行 `/kanban --update <uuid> set:status=planned`。
 5. 若 thread 已是 `in_progress`,仍允许执行第 1-3 步继续追加；`in_progress` 不是计划冻结状态。
 
-## 预分配席位智能分析
+## 预分配席位分析
 
-plan 就绪后（来源 A+/A/B），在进行席位预分配前，按以下流程严格分析。
+plan 就绪后(来源 plan 引用 / 对话抽取 / 文件导入),先分析是否需要预分配 developer 席位。
 
-### 核心原则
+核心原则:
 
-- **默认单 developer 席位**：不轻易拆分为多席位。只有明确满足 ALL 4 条件时，才考虑多席位。
-- **模型做推理，脚本做约束**：模型的职责是阅读 plan、判断复杂度与独立性；脚本（new-task.ts）负责校验 blocked_on 链的完整性与无环性。
+- 默认单 developer 席位。只有明确满足全部 4 条件时,才考虑多席位。
+- Agent 负责阅读 plan、判断复杂度与独立性;`new-task.ts` 负责校验 `blocked_on` 链完整性与无环性。
 
-### 严格 4 条件
-
-多 developer 席位需**同时满足**以下所有条件：
+多 developer 席位需同时满足:
 
 | 条件 | 要求 | 不满足时的处理 |
-| ---- | ---- | -------------- |
-| **C1 文件域不重叠** | 各席位涉及的文件/目录路径无交集 | 降级为单席位 |
-| **C2 模块独立** | 模块间无共享内部状态或强耦合，关注点清晰分离 | 降级为单席位 |
-| **C3 非阻塞** | 无先后依赖；若有显式依赖，必须设置 `blocked_on` 链 | 设置 blocked_on，继续 |
-| **C4 足够复杂度** | 每个席位对应 ≥2 个 plan 章节/子任务，避免拆出琐碎任务 | 合并过小的席位 |
+|------|------|----------------|
+| C1 文件域不重叠 | 各席位涉及的文件/目录路径无交集 | 降级为单席位 |
+| C2 模块独立 | 模块间无共享内部状态或强耦合 | 降级为单席位 |
+| C3 非阻塞 | 无先后依赖;若有显式依赖,必须设置 `blocked_on` 链 | 设置 `blocked_on`,继续 |
+| C4 足够复杂度 | 每个席位对应 ≥2 个 plan 章节/子任务 | 合并过小席位 |
 
-C3 是唯一允许"有条件通过"的项——当 plan 中明确描述了 Phase 1 → Phase 2 的依赖关系时，可以为 Phase 2 的席位设置 `blocked_on: "phase-1-seat-name"`。
+C3 是唯一允许有条件通过的项。当 plan 明确描述 Phase 1 → Phase 2 依赖时,可为 Phase 2 设置 `blocked_on: "phase-1-seat-name"`。
 
-### 分析流程
+分析流程:
 
-1. 模型通读 plan.md，理解章节结构、文件路径引用、模块划分
-   - 若存在 `./plan-*.md` 子计划索引,继续逐个读取子计划
-   - 多 developer 席位优先对应具体子计划；主 `plan.md` 只负责总目标、索引、执行顺序和依赖说明
-2. 按 4 条件逐一评估：
-   - **单席位合理** → 静默构造 worktree JSON，不向用户提问
-   - **多席位可能合理** → 进入步骤 3
-3. AskUserQuestion：
+1. 通读 `plan.md`;若存在 `./plan-*.md` 子计划索引,继续逐个读取子计划。
+2. 按 4 条件逐一评估:
+   - 单席位合理 → 静默构造 worktree JSON
+   - 多席位可能合理 → AskUserQuestion 让用户选择接受、合并或自定义
+3. 用户接受多席位时,构造含 `blocked_on` 链的 worktree JSON 并调用 `new-task.ts`。
 
-```
-检测到计划可拆分为 <N> 个独立开发席位：
+多 developer 席位优先对应具体子计划;主 `plan.md` 只负责总目标、索引、执行顺序和依赖说明。
 
-席位划分:
-  - <seat-a>: <brief>（涉及: <files>）
-  - <seat-b>: <brief>（涉及: <files>）[阻塞于 <seat-a>]
+`blocked_on` 的值必须是同任务中另一个 developer 条目的名称。`new-task.ts` 写入前校验目标存在、无自引用、无环形依赖。
 
-(a) 接受多席位（共 <N> dev）
-(b) 合并为单席位
-(c) 自定义调整
-```
-
-- 选 (a) → 构造含 blocked_on 链的 worktree JSON，调用 new-task.ts
-- 选 (b) → 合并所有 brief，构造单席位 JSON，调用 new-task.ts
-- 选 (c) → 让用户描述调整，重新分析
-
-### worktree JSON 中 blocked_on 的格式
+示例:
 
 ```json
 {
@@ -159,14 +134,7 @@ C3 是唯一允许"有条件通过"的项——当 plan 中明确描述了 Phase
 }
 ```
 
-`blocked_on` 的值必须是同任务中另一个 developer 条目的名称。new-task.ts 会在写入前校验：
-- 目标存在
-- 无自引用
-- 无环形依赖
-
-### 无 plan 时
-
-空白看板（来源 C，status=draft）跳过席位分析。worktree 为 `{}`，用户后续通过 `--update` 完善。
+空白看板(`status=draft`)跳过席位分析。`worktree` 为 `{}`,用户后续通过 `--update` 完善。
 
 ## 实现脚本
 
@@ -175,21 +143,23 @@ bun run $SCRIPTS/new-task.ts \
   --mode <extract|fromFile|blank> \
   --repo <repo> \
   --description <desc> \
-  [--plan-content-file <path>]   # extract 模式:Agent 把整理好的 plan 写临时文件
-  [--plan-file <path>]           # fromFile 模式:原始文件路径
-  [--draft-ref <path>]           # 可选:原始需求草稿路径
-  [--multi-plan]                 # 可选:创建 multi-plan 索引草案
-  [--worktrees-json '<json>']    # 可选:worktree 字典,developer 可含 blocked_on
+  [--plan-content-file <path>] \
+  [--plan-file <path>] \
+  [--plan-ref <path>] \
+  [--draft-ref <path>] \
+  [--multi-plan] \
+  [--worktrees-json '<json>']
 ```
 
-`--worktrees-json` 中 developer 条目可含 `blocked_on` 字段（值为同任务其他 developer 的名称）。脚本自动校验链完整性（目标存在、无自引用、无环形依赖），校验失败则拒绝写入。
+`--worktrees-json` 中 developer 条目可含 `blocked_on` 字段,值必须是同任务其他 developer 名称。脚本自动校验目标存在、无自引用、无环形依赖;失败则拒绝写入。
 
-fromFile 模式若识别到索引式 multi-plan,stdout 的 JSON 会包含 `subPlans: ["~/.kanban/.../plan-a.md", ...]`。`--multi-plan --mode blank` 创建 `draft` 索引草案,stdout 的 `isMultiPlan` 为 `true`。
+fromFile 模式若识别到索引式 multi-plan,stdout JSON 包含 `subPlans: ["~/.kanban/.../plan-a.md", ...]`。`--multi-plan --mode blank` 创建 `draft` 索引草案,stdout 的 `isMultiPlan` 为 `true`。
 
 ## 汇报模板
 
-**正式任务(planned)**:
-```
+正式任务(`planned`):
+
+```text
 ✅ 任务已创建 [planned]
 UUID:   019d9b9f-7c0c-...
 Short:  019d9b9f
@@ -203,22 +173,24 @@ Blocked-on chain: dev-rbac → dev-parser
 下一步:在对应 worktree 内启动 Claude 即自动进入角色。
 ```
 
-若为单席位，省略 blocked_on 相关行。
+若为单席位,省略 blocked_on 相关行。
 
-**空白看板(draft)**:
-```
+空白看板(`draft`):
+
+```text
 📝 空白看板已创建 [draft]
 UUID:   019d9b9f-...
 Short:  019d9b9f
 Repo:   wave
 Plan:   ~/.kanban/wave/019d9b9f.../plan.md (占位)
 提示:
-  /kanban --update 019d9b9f               # 逐项完善
-  /kanban --update 019d9b9f status=planned # 校验并发布
+  /kanban --update 019d9b9f
+  /kanban --update 019d9b9f status=planned
 ```
 
-**multi-plan 索引草案(draft)**:
-```
+multi-plan 索引草案(`draft`):
+
+```text
 📝 Multi-plan 索引已创建 [draft]
 UUID:   019d9b9f-...
 Short:  019d9b9f

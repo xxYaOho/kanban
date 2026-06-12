@@ -1,339 +1,157 @@
 # /kanban --update
 
-更新任务的**人工领域字段**。支持交互式(默认)和快捷两种形态。
+更新任务的人工领域字段。支持交互式和快捷形态;快捷形态跳过候选推荐与容错,校验失败直接报错。
 
 ## 命令形态
 
 ```bash
-/kanban --update <uuid>                                       # 交互式
-/kanban --update <uuid> <path>=<value> [<path>=<value>...]    # 快捷,跳过交互
+/kanban --update <uuid>
+/kanban --update <uuid> <path>=<value> [<path>=<value>...]
 ```
 
-UUID 允许短前缀(≥6),多候选时列表让用户选。
+UUID 解析、活跃任务筛选和多候选处理遵循 `SKILL.md` 的任务定位公共流程。终态任务不列入默认候选。
 
-## 字段白名单
+## 字段合同
 
-**允许改**:
-- 顶层:`status` / `description` / `plan` / `draft` / `repo`
-- role 条目 brief:`developer.<name>.brief` / `reviewer.<name>.brief` / `tester.<name>.brief` / `integrator.<name>.brief`
-- 新增整个 role 条目:
-  - `draft` / `planned`:允许新增 idle 条目
-  - `in_progress`:允许追加新的 idle 条目,用于 multi-plan 继续扩展
-- 删除整个 role 条目:
-  - 仅 `draft` / `planned` 且条目未认领(`status=idle && attempt=0`)时允许
-  - `in_progress` 禁止删除已有条目
-- 修改 role 条目 brief:
-  - 未认领条目(`status=idle && attempt=0`)允许修改
-  - 已认领条目(`attempt > 0` 或 `status != idle`)禁止修改
+允许 `/kanban --update` 修改:
 
-**拒绝改**(Agent 领域,由角色 Agent 工作中自动写):
-- `<role>.<name>.status / review / report / attempt / error / blocked_on / pass / fail / merged / conflicts`
-- `created` / `updated`(系统维护)
+| 范围 | 字段 / 操作 | 规则 |
+|------|-------------|------|
+| 顶层 | `status` / `description` / `plan` / `draft` / `repo` | 人工领域字段 |
+| role brief | `<role>.<name>.brief` | 仅未认领条目可改 |
+| 新增条目 | `add:<role>:<name>:<json>` | `draft/planned` 可新增;`in_progress` 只允许追加 idle 条目 |
+| 删除条目 | `del:<role>:<name>` | 仅 `draft/planned` 且条目未认领时可删 |
 
-**越权拒绝话术**:
-```
-❌ 字段 `developer.dev-serve.status` 属于 Agent 自主字段,/kanban --update 不允许修改。
-   如需强制重置:
-   (a) 让该席位的 Agent 重新运行并自检(推荐)
-   (b) 人工直接编辑 ~/.kanban/kanban.json(会破坏一致性,自行承担)
-```
+未认领条目定义:`status=idle && attempt=0`。已认领条目(`attempt > 0` 或 `status != idle`)禁止通过 `--update` 修改 brief 或删除。
 
-## 席位重评估
+新增条目必须满足:
 
-当 `--update` 涉及 `plan` 字段变更（替换或指向新 plan 文件），且任务 status ∈ {draft, planned} 时，在写入前执行席位重评估。
+- role 合法;`test` alias 归一为 `tester`。
+- name 非空,且同 role 下不存在。
+- JSON 是对象,且包含非空 `brief`。
+- `blocked_on` 仅 developer 可带,并执行下方最终 developer 图预校验。
 
-### 触发条件
+拒绝 `/kanban --update` 修改:
 
-- `plan` 字段在本次 update 中被修改
-- 任务尚未进入 `in_progress`（即 status 为 draft 或 planned）
-- 不触发：任务已在执行中（席位已被认领，结构调整会丢失状态）。multi-plan 的执行中追加子计划不走整体席位重评估,只允许追加新的 idle 条目
+| 类型 | 字段 |
+|------|------|
+| Agent 字段 | `<role>.<name>.status` / `attempt` / `error` / `blocked_on` / `reports` / `review` / `pass` / `fail` / `report` / `merged` / `conflicts` / `cwd` / `worktree` / `case_document` |
+| 系统字段 | `created` / `updated` |
 
-### 流程
+这类字段必须由角色脚本、`agent-write.ts` 或系统锁内逻辑维护。越权时拒绝,不要建议直接编辑 `kanban.json` 作为正常路径。
 
-1. 模型读取新 plan.md 内容
-2. 按 `cmd-new.md` 中的「预分配席位智能分析」4 条件（C1-C4）重新评估当前席位是否仍适配新 plan
-3. 比对结果：
+## `blocked_on` 预校验
 
-**席位仍适配** → 不中断流程，diff 底部追加：
+`add:developer:<name>:{"brief":"...","blocked_on":"<other-dev>"}` 可创建带依赖的 developer 条目。
 
-```
-ℹ️ 席位重评估：当前席位仍适配新 plan
-```
+`update-task.ts` 当前只透传 `blocked_on`,不校验依赖图。Agent 调脚本前必须基于本次 ops 应用后的最终 developer 图检查:
 
-**席位需调整** → AskUserQuestion：
+- `blocked_on` 仅允许出现在 developer 条目。
+- 值必须指向同任务内另一个 developer。
+- 禁止自引用。
+- 禁止环形依赖。
 
-```
-⚠️ 计划调整后席位可能不再合适：
-当前: <N> dev（<现有席位列表>）
-建议: <调整建议>（合并为 1 个席位 / 拆分为 <M> dev / 调整 blocked_on 链）
+校验失败时中止 update,不要调用脚本。
 
-(a) 重新调整席位
-(b) 保留当前席位不变
-(c) 暂不处理，仅保存 plan
-```
+## Plan 变更与席位重评估
 
-4. 用户选择处理：
-   - 选 (a) → 使用 `del:` + `add:` ops 重建席位结构：
-     - 删除所有旧 developer 条目（仅在均 idle + attempt=0 且任务未进入 `in_progress` 时可操作）
-     - 按新分析结果创建 developer 条目（add op 支持 `blocked_on`）
-     - 非 developer 角色（reviewer/tester/integrator）不受影响
-   - 选 (b) → 仅保存 plan，席位不变，diff 底部追加 `⚠️ 席位未随 plan 调整，可能存在不匹配`
-   - 选 (c) → 仅保存 plan，不调整席位，不追加警告
+当本次 update 修改 `plan`,且任务状态为 `draft` 或 `planned` 时,写入前必须重评估 developer 席位是否仍适配新 plan。评估标准复用 `cmd-new.md` 的预分配席位 4 条件。
 
-### 席位已被认领时的处理
+处理规则:
 
-若任务已有 developer 条目被认领（attempt > 0 或 status ≠ idle），无法通过 del/add 重建。此时：
+- 席位仍适配:保存 plan,在 diff 中提示席位仍适配。
+- 需要调整:让用户选择重建 developer 席位、保留当前席位并提示可能不匹配、或仅保存 plan。
+- 已认领 developer 不能通过 `del` / `add` 重建;此时只能让用户选择仅保存 plan 或取消 update。
+- 非 developer 角色不参与重建。
+- `in_progress` 不做整体席位重评估;multi-plan 执行中追加子计划时,只允许追加新的 idle 条目。
 
-```
-⚠️ 以下席位已被认领，无法结构调整：
-  - <seat-name>（status=<status>, attempt=<attempt>）
-建议：等待当前工作完成后再调整，或手动处理。
+交互式 plan 输入应先校验文件存在且非空。快捷形态不做交互容错,但仍要执行字段、状态和依赖校验。
 
-(a) 仅保存 plan，暂不调整席位
-(b) 取消本次 update
-```
+## `status → planned` 校验
 
-### 实现说明
+提升到 `planned` 时必须通过 `validatePromotableTask()` 的完整校验:
 
-席位调整通过标准的 `del:` + `add:` ops 实现，无需新增脚本逻辑。`add` op 的 JSON 格式：
+- `plan` 文件存在且非空。
+- 至少一个 role 条目存在。
+- 每个 role 条目有非空 `brief`。
+- 若 `plan.md` 是 multi-plan 索引:
+  - 至少一个实际 `plan-*.md` 子计划存在。
+  - 主 `plan.md` 中引用的 `./plan-*.md` 必须存在。
+  - 至少一个 role 条目对应某个子计划。
 
-```
-add:developer:<name>:{"brief":"...","blocked_on":"<other-dev-name>"}
-```
+不满足则拒绝写入并列出缺失项。
 
-`blocked_on` 字段可选，仅在 developer 角色且存在依赖时传入。
+状态更新还需遵守脚本限制:`in_progress` 不允许回退到 `planned`。
 
 ## 交互式流程
 
-### 0. 定位任务(uuid 解析)
+1. 定位任务:按 `SKILL.md` 公共流程解析 uuid 或选择唯一活跃任务。
+2. 回显当前人工字段:`status`、`description`、`plan`、`draft`、`repo`、所有 role brief。
+3. 采集要改的字段:
+   - `status`:推荐合理转移,但只写合法 task status。
+   - `description`:可基于 plan/repo/brief 生成候选,避免空泛描述。
+   - `plan`:探测对话路径、当前 worktree Markdown、任务目录 Markdown;输入后校验存在且非空。
+   - `draft`:原始需求草稿路径,可为空。
+   - `repo`:可从 `~/.kanban/` 现有目录选择或手动输入。
+   - `<role>.<name>.brief`:必须非空,且条目未认领。
+   - 新增 / 删除 role 条目:按字段合同限制。
+4. 展示 diff 并二次确认;用户可确认、取消或回到修改。
+5. 将交互结果翻译为脚本 op,通过 `update-task.ts` 原子提交。
 
-遵循 SKILL.md 中的 **uuid 解析公共流程**:
+diff 至少展示字段前后值和新增/删除条目:
 
-1. 用户提供 uuid → 直接使用(支持短前缀 ≥6)
-2. 未提供 uuid → 读 kanban.json,筛选活跃任务(`status ∈ {in_progress, planned, draft}`)
-3. 恰好一个活跃任务 → 静默选中,执行结果中注明"已自动选择任务 <short>"
-4. 多个活跃任务 → AskUserQuestion 列出候选(`<short> — <description> [<status>]`),排序:`in_progress` 优先 > `planned` > `draft`
-5. 无活跃任务 → 提示"当前无活跃任务",建议 `--new` 创建或 `--update <uuid> status=planned` 激活
-6. 终态任务(`done / archived / aborted`)不列入候选
-
-定位成功后,回显当前人工字段(status / description / plan / draft / repo / 所有 role 条目的 brief)。
-
-### 1. 问改哪些
-
-AskUserQuestion 多选:
-- status
-- description
-- plan(plan.md 路径)
-- draft(原始需求草稿路径,可选)
-- repo
-- `<role>.<name>.brief`(按现有 role 条目展开)
-- 新增 role 条目
-- 删除 role 条目
-- 完成(保存并退出)
-
-### 2. 对每个选中项采集新值
-
-**统一容错原则**:先探测上下文 → 有候选则提供选择 → 无候选则给出格式提示 → 输入后校验 → 校验失败重新询问。快捷形态(`path=value`)跳过所有容错,校验失败直接报错。
-
-#### `status`
-
-基于当前 status 推荐 1~3 个合理转移目标:
-
-| 当前 status | 推荐转移                    |
-| ----------- | --------------------------- |
-| draft       | planned, aborted            |
-| planned     | in_progress, aborted        |
-| in_progress | done, aborted               |
-| done        | archived                    |
-| archived    | 无推荐,提示"已是终态"       |
-| aborted     | 无推荐,提示"已是终态"       |
-
-示例话术:
-```
-当前 status: draft,合理的目标:
-(a) planned  — plan 已定稿,准备开工
-(b) aborted  — 放弃此任务
-
-请选择,或输入其他合法值(draft / in_progress / done / archived / aborted):
-```
-
-#### `plan`
-
-**探测上下文**:
-1. 检查对话中是否出现过文件路径(特别是 `.md` 文件)
-2. 检查当前 worktree 目录下是否存在 `.md` 文件
-3. 检查任务对应的 `~/.kanban/<repo>/<uuid>/` 目录下是否存在 `.md` 文件
-
-**有候选**:列出文件供选择,允许自由输入:
-```
-发现以下可能的 plan 文件:
-(a) ~/.kanban/wave/019d9b9f.../plan.md  (已存在,当前值)
-(b) ~/docs/requirements-v2.md
-(c) 手动输入路径
-```
-
-**无候选**:给出格式提示:
-```
-plan 需要指向一个实际存在的 .md 文件。格式示例:
-  ~/.kanban/<repo>/<uuid>/plan.md
-  ~/docs/my-plan.md
-请输入 plan 文件路径:
-```
-
-**校验**:输入后检查文件是否存在且非空字节。不存在则提示并重新询问。
-
-> plan 变更确认后，触发「席位重评估」流程（见上方章节），在 diff 展示前完成。
-
-#### `description`
-
-**Agent 生成候选**:基于以下信息生成一条候选 description:
-- plan.md 内容(摘要关键词)
-- repo 名称
-- 当前席位的 brief 描述
-
-候选要求:
-- 不超过 80 字符
-- 包含具体技术关键词
-- 避免模糊用语(如"优化""改进""调整")
-
-**采集**:
-```
-基于任务上下文,建议 description:
-  "CLI v0.14 命令解析器重构与 RBAC 中间件集成"
-
-(a) 采纳建议
-(b) 自行输入
-(c) 保持不变
-```
-
-选 (b) 后接自由文本输入。选 (c) 跳过此字段。
-
-#### `repo`
-
-**列出候选**:扫描 `~/.kanban/` 下的目录名(排除 `.locks` 和 `archive`):
-```
-已有 repo 目录:
-(a) wave
-(b) superconductor
-(c) 手动输入新名称
-```
-
-选择已有名称则直接使用;选 (c) 接受自由输入。新 repo 名称仅做目录命名校验(合法字符、非空)。
-
-#### `<role>.<name>.brief`
-
-**回显当前值**,基于 plan.md 内容推荐 1~2 个候选 brief(复用 `--role` 的 context 追问逻辑),加自由输入:
-
-```
-当前 brief: "重构命令解析器"
-
-根据 plan 内容,建议:
-(a) "重构命令解析器并补充单元测试"
-(b) "实现 RBAC 中间件集成"
-(c) 保持不变
-(d) 手动输入
-```
-
-#### 新增 role 条目
-
-依次采集:
-1. **role**:developer / reviewer / tester / integrator
-   - `test` 作为 legacy alias 兼容输入；新写入统一为 `tester`
-2. **name**:非空、与同 role 下现有条目不重名
-3. **brief**:非空,同上方 `<role>.<name>.brief` 逻辑(无当前值可回显,跳过"保持不变"选项)
-
-#### 删除 role 条目
-
-从现有 role 条目列表多选。被选中的条目将在 diff 阶段确认后删除。
-
-若任务已是 `in_progress`,删除入口不可选。若条目已认领(`attempt > 0` 或 `status != idle`),即使任务仍是 `draft/planned` 也不可删除。
-
-### 3. diff 展示 + 二次确认
-
-```
+```text
 以下改动将提交,确认?
-  status:               draft → planned
-  description:          "CLI v0.14 优化(草案)" → "CLI v0.14 优化"
-  draft:                null → "~/docs/requirements-v1.md"
+  status: draft -> planned
+  description: "旧描述" -> "新描述"
   + developer.dev-serve: { brief: "重构命令解析器" }
   - developer.obsolete
-```
-用户选 `确认` / `取消` / `回到修改`。
-
-### 4. 写入
-
-`withKanbanLock` 原子提交,刷新 `updated`。
-
-### 5. `status → planned` 的提升校验
-
-在锁内、写前执行:
-- `plan` 文件存在且非空字节
-- 至少一个 role 条目
-- 每个 role 条目有非空 `brief`
-- 若是 multi-plan 索引:
-  - 主 `plan.md` 非空
-  - 至少一个实际 `plan-*.md` 子计划存在
-  - 主 `plan.md` 中引用的 `./plan-*.md` 必须存在
-  - 至少一个 role 条目对应某个子计划
-
-不满足则拒绝写入,列出缺失项:
-```
-❌ 无法提升 status → planned,缺失以下项:
-  - plan 文件为空: ~/.kanban/wave/019d9b9f.../plan.md
-  - multi-plan 需要至少一个实际 plan-*.md 子计划
-  - developer.dev-serve.brief 未填写
 ```
 
 ## 快捷形态
 
-```
+用户形态示例:
+
+```bash
 /kanban --update 019d9b9f description="CLI v0.14 优化" status=planned
-/kanban --update 019d9b9f draft="~/docs/requirements-v1.md"
 /kanban --update 019d9b9f developer.dev-serve.brief="重构命令解析器"
 /kanban --update 019d9b9f add:reviewer:review:'{"brief":"统一 review"}'
-/kanban --update 019d9b9f add:developer:plan-export:'{"brief":"实现 plan-export 子计划,对应 plan-export.md"}'
+/kanban --update 019d9b9f add:developer:plan-export:'{"brief":"实现 plan-export 子计划","blocked_on":"dev-core"}'
 /kanban --update 019d9b9f del:developer:obsolete
 ```
 
-**语法规则**:
-- `<path>=<value>`:设置(path 在白名单)
-- `add:<role>:<name>:<json>`:新增 role 条目(value 是 JSON 对象,至少含 `brief`)
-- `del:<role>:<name>`:删除 role 条目
-- value 有空格时用引号;JSON 用单引号包外层
-- 多个操作**原子提交**,任一非法则全部不生效
-
-**容错豁免**:快捷形态跳过所有交互式容错(候选推荐、上下文探测),校验失败直接报错,不重新询问。
-
-## 实现脚本
+Agent 将用户快捷形态翻译为脚本 op:
 
 ```bash
 bun run $SCRIPTS/update-task.ts <uuid> <op>...
 ```
 
-`<op>` 格式:
+脚本 op:
+
 - `set:<path>=<value>`
 - `add:<role>:<name>:<json>`
 - `del:<role>:<name>`
 
-Agent 负责把交互式选择翻译成这些 op,再调脚本。
+多个 op 在锁内原子提交;任一非法则全部不生效。
 
-## 删除 role 条目的注意事项
+## 删除条目边界
 
-- 删除 `status=idle, attempt=0` 的条目是安全的——这是未被认领的预分配席位，无工作历史
-- 删除 `status` 非 idle 或 `attempt > 0` 的条目会丢失该 worktree 的工作历史（report、review 等文件不会被删除，但 kanban 中的状态追踪会断裂）
-- `in_progress` 下禁止删除任何已有条目；multi-plan 追加新子计划时只能新增 idle 条目
-- 若目的是将预分配席位映射到真实 cwd，优先使用 `/kanban --role` 的认领机制，而非先删后建
-
-## 撤销
-
-**不支持**。每次提交前的 diff + 二次确认已足够防误操作。如需恢复历史,建议 `cd ~/.kanban && git init` 用 git 管理状态文件。
+- 删除 `status=idle, attempt=0` 的条目是删除未认领预分配席位。
+- 删除已认领条目会断开 kanban 状态追踪,因此禁止。
+- `in_progress` 下禁止删除任何已有条目。
+- 若目的是将预分配席位映射到真实 cwd,优先使用 `/kanban --role` 的认领机制。
 
 ## 汇报模板
 
-```
-✅ 任务 019d9b9f 已更新
+```text
+✅ 任务 <short> 已更新
 变更:
-  status:               draft → planned
+  status: draft -> planned
   + developer.dev-serve: { brief: "..." }
-当前 status: planned,可以在 dev-serve worktree 启动 Claude。
+当前 status: planned
+下一步:在对应 worktree 内启动 Agent。
 ```
+
+## 撤销
+
+不支持命令级撤销。依赖提交前 diff 和二次确认防误操作;需要历史恢复时,建议对 `~/.kanban` 使用 git 管理。

@@ -1,6 +1,6 @@
 # /kanban --role
 
-当前 worktree 自注册入口。在 cd 进某个 worktree 后,就地声明角色与职责,写入 kanban。
+当前 worktree 自注册入口。在某个 worktree 中声明角色与职责,写入 kanban,并按角色自然承接下一步。
 
 ## 命令形态
 
@@ -12,260 +12,130 @@
 /kanban --thread <id> --role reviewer --standby
 ```
 
-- `<role>` 必填位置参数:`developer` / `reviewer` / `tester` / `integrator`
-- `test` 是 legacy alias，脚本会兼容输入，但新写入统一记录为 `tester`
-- `<context>` 可选:对应 `<role>.<name>.brief`,即这个条目要做什么
-- `--standby` 可选:注册/认领完成后进入前台值班模式；详见 `cmd-standby.md`
+- `<role>` 合法值:`developer` / `reviewer` / `tester` / `integrator`。
+- `test` 是 legacy alias;脚本兼容输入,新写入统一为 `tester`。
+- `<context>` 可选,作为 `<role>.<name>.brief`。
+- `--standby` 仅表示注册后进入前台待命;待命规则见 `cmd-standby.md`。
 
-## 执行流程
+任务定位、uuid 解析和多候选处理遵循 `SKILL.md` 的任务定位公共流程。终态任务不能注册。
 
-### 1. 解析 role
+## 注册前检查
 
-**合法值**:直接进入下一步。
+### Role 校验
 
-**非法值**:不硬拒绝,用 AskUserQuestion 追问:
+非法 role 不直接写入。Agent 应追问用户选择合法 role;用户取消则中止,kanban 不变。
 
-```
-角色 `dev` 不存在(你是想选 developer 吗?)。请选择一个合法角色:
-(a) developer  — 实现分配的任务
-(b) reviewer   — 审查 developer 交付
-(c) tester     — 全面测试
-(d) integrator — 合并分支,产出 release candidate
-(e) 取消本次注册
-```
+### 跨角色保护
 
-- 有高置信前缀/编辑距离匹配时,在话术里点名猜测
-- 用户选 (e) → 中止,kanban 不被修改
+调用 `role.ts` 前,Agent 必须扫描当前任务所有 role 条目:
 
-### 2. 定位任务
+- 同 role 且 `cwd == basename(pwd)` 或 key 等于当前 worktree 名:允许幂等刷新 brief。
+- 不同 role 已绑定当前 worktree:拒绝跨角色切换,引导用户使用 `/kanban --update <uuid> add:<role>:<name>:'{"brief":"..."}'`。
 
-`worktreeName = basename(pwd)`,复用 SKILL.md 中的 **任务定位公共流程**:
+`role.ts` 只在当前 role 内查已有 key/cwd,不会替 Agent 完成跨角色拦截。
 
-1. 用户通过参数提供 uuid → 直接使用(支持短前缀 ≥6)
-2. 未提供 uuid → 按"任务定位公共流程"中的活跃任务筛选与候选逻辑执行
-3. 已注册保护:若已有条目的 `cwd === worktreeName`（或 key === worktreeName 作为兼容旧数据回退）→ 走冲突处理(见步骤 4)
+### 预分配席位认领
 
-> 不在本文档内重复 uuid 解析细节,以 SKILL.md 的"任务定位公共流程"为准。
+当当前 cwd 尚未注册时,Agent 可运行 `query.ts <uuid>` 并读取尾部 JSON 的 `idleStations`。
 
-### 2.5 席位匹配（仅当无条目匹配当前 cwd 时）
+`idleStations[role]` 的筛选条件是:
 
-当前 worktree 的 cwd 尚未在任务中注册时，检查是否有可认领的预分配席位。认领后 key 保持预分配名称不变，`cwd` 字段记录当前目录名。
+- `status == "idle"`
+- `attempt == 0`
 
-**读取空置席位**：调用 `query.ts <uuid>`，从输出的 JSON 块中获取 `idleStations[<role>]`。
+认领合同:
 
-**扫描条件**（`query.ts` 内部实现）：遍历 `task.<role>`，筛选满足以下全部条件的条目：
-- `status` === `"idle"`
-- `attempt` === `0`
+- `--claim-from` 当前仅用于 developer。
+- 非 developer 的 `idleStations` 不能传给 `role.ts --claim-from`。
+- developer 选择认领后,脚本传 `--claim-from <stationName>`;stable key 保持预分配席位名,cwd/worktree 记录当前目录名。
+- 若 `--claim-from` 等于当前 worktree 名,无需认领,走同角色幂等路径。
+- 若认领因竞争失败,重新运行 `query.ts`;仍有空置席位则重新展示,否则回退到正常创建。
+- developer idle station 可能含 `blockedOn`;展示时必须提示阻塞关系。
 
-**分支处理**：
+Stable key 选择:
 
-**无空置席位** → 跳过本步骤，进入步骤 3（正常创建新条目）。
+- developer 的 `--worktree` 是真实 cwd 名;认领预分配席位时通过 `--claim-from` 保留 station key。
+- reviewer 不绑定真实 worktree;`--worktree` 应使用 entry key。优先复用已有 reviewer idle station key,没有预分配时默认使用 `review`。
+- tester / integrator 绑定真实 worktree。只有 station key 等于当前 cwd 或已记录的 cwd 时,才可按该 key 幂等刷新。
+- tester / integrator 的 station key 与当前 cwd 不同时,不要用 station key 调 `role.ts`;应新建当前 cwd 条目,并用 `/kanban --update` 清理或调整旧 idle station,避免残留 blocker。
 
-**有 1 个空置席位** → AskUserQuestion：
+## Brief 合同
 
-```
-检测到预分配席位 "<stationName>" (<role> — <brief>)，是否认领？
-(a) 认领该席位
-(b) 不认领，创建独立的新角色
-```
+- 有 `<context>` 时直接作为 brief。
+- 无 `<context>` 时,Agent 根据 plan 和角色默认职责追问或生成明确建议。
+- brief 必须非空且非占位符。
 
-若席位含 `blockedOn`（来自 `idleStations` 的 `blockedOn` 字段），追加提示：
-`ℹ️ 该席位需等待 <blockedOn> 完成后才能启动（已设置 blocked_on）`
+默认职责可压缩为:
 
-- 用户选 (a) → 脚本传 `--claim-from <stationName>`，继续步骤 3 采集 brief（预分配的 brief 作为默认建议）
-- 用户选 (b) → 不传 `--claim-from`，继续步骤 3
+| role | 默认职责 |
+|------|----------|
+| developer | 完成 plan 中分配的实现与必要测试 |
+| reviewer | 审查 developer 交付,确认 plan 对齐、代码质量和测试风险 |
+| tester | 执行集成/边界/回归验证 |
+| integrator | 合并通过验证的分支并产出 integration report |
 
-**有 2 个空置席位** → AskUserQuestion：
+## 写入字段
 
-```
-当前任务有以下空置的 <role> 席位：
-(a) <stationName1> — <brief1>
-(b) <stationName2> — <brief2>
-(c) 不认领，创建独立的新角色
-```
+`role.ts` 在 `withKanbanLock` 内写入或刷新条目。
 
-各选项若含 `blockedOn`，在 brief 后追加 `（阻塞于 <blockedOn>）`。
+| role | 初始字段 |
+|------|----------|
+| developer | `status: idle`, `brief`, `attempt: 0`, `blocked_on: null`, `worktree`, `cwd`, `reports: []`, `review: null`, `error: null` |
+| reviewer | `status: idle`, `brief`, `attempt: 0`, `pass: []`, `report: ""`, `error: null` |
+| tester | `status: idle`, `brief`, `attempt: 0`, `worktree/cwd`, `case_document: ""`, `pass: []`, `fail: []`, `report: ""`, `error: null` |
+| integrator | `status: idle`, `brief`, `attempt: 0`, `worktree/cwd`, `merged: []`, `conflicts: []`, `report: ""`, `error: null` |
 
-**有 3 个及以上空置席位** → 按优先级展示前 3，注明总数：
+Reviewer 不绑定真实 worktree;`role.ts` 不写 `cwd/worktree`,后续用 entry key / `stableKey` 识别。Tester 和 integrator 在主 worktree 注册时 `worktree/cwd` 为 `null`。
 
-```
-当前任务有 <N> 个空置的 <role> 席位，展示优先级前 3：
-(a) <stationName1> — <brief1>
-(b) <stationName2> — <brief2>
-(c) <stationName3> — <brief3>
-(d) 不认领，创建独立的新角色
-```
+若任务仍为 `draft`,注册后不自动提升到 `planned`。
 
-各选项若含 `blockedOn`，同上处理。
+## Developer auto-start
 
-席位按 `task.<role>` 中的顺序排列（`--new` 创建时先定义的优先级更高），Agent 层按 `idleStations` 数组原序读取即可。
+developer 注册或认领后,脚本会按状态决定是否自动开工:
 
-- 用户选某个席位 → 脚本传对应的 `--claim-from`
-- 用户选"不认领" → 不传 `--claim-from`，正常创建
+| 条件 | 脚本行为 | Agent 行为 |
+|------|----------|------------|
+| task 为 `draft` | 保持 idle,输出 `autoStartReason` | 汇报需先提升到 `planned` |
+| `blocked_on` 有值 | 保持 `status=idle`,输出阻塞原因;claim-from 时已写入 `cwd/worktree` 且 `attempt=1` | 汇报阻塞项,并说明该席位已认领、不再出现在 `idleStations` |
+| task 为 `planned/in_progress` 且无 `blocked_on` | `status=working`, `attempt=1` 或至少为 1 | 读取 plan / 子计划并直接开始第一项工作 |
+| task 为 `planned` 且 developer 开工 | task 提升为 `in_progress` | 汇报状态变化 |
+| developer 为 `follow_issue` | 自动转 `working` | 先读 owner 为自己的 open issue 再修复 |
 
-**名称相同时的处理**：若 `worktreeName` 恰好等于某个预分配席位名，无需认领——直接走正常的"同角色幂等"路径即可，不传 `--claim-from`。
+注册成功后,若 `autoStarted=true`,Agent 不再追问"是否开始"、"从哪里开始"。用户后续回复"ok"、"可以"、"继续"等,视为推进信号。
 
-**认领时的 brief 处理**：
-- 若用户在命令中提供了 `<context>`（如 `/kanban --role developer "负责音频模块"`），使用用户提供的 brief
-- 若未提供 `<context>`，将预分配席位的原始 brief 作为默认建议呈现在步骤 3 的 AskUserQuestion 中
+## 角色承接判断
 
-**认领失败恢复**：若 `role.ts` 返回席位不存在/已被认领的错误（TOCTOU 竞争导致），Agent 不应将错误原样展示给用户。应重新调用 `query.ts` 获取最新的空置席位列表：
-- 仍有同角色空置席位 → 重新展示候选（同样最多展示前 3）："刚才选择的席位已被其他 Agent 认领，以下是当前可用的席位：..."
-- 无空置席位 → 回退到正常创建流程："所有预分配席位已被认领，将为当前 worktree 创建新的角色条目。"
+注册后运行 `query.ts <uuid>` 并读取尾部 JSON。`recommendedNextAction` 只作短提示,不能替代角色手册。
 
-### 3. 采集 brief
+关键字段定义:
 
-**有 `<context>`**:直接作为 brief 写入,不追问。
+| 字段 | 定义 |
+|------|------|
+| `currentEntry` | 当前 cwd 匹配到的 role/key/status/brief;先按 `cwd`,再按 key 回退 |
+| `idleStations` | 每个 role 下 `status=idle && attempt=0` 的条目;developer 项可带 `blockedOn` |
+| `eligibleReviewTargets` | 所有 `developer.status == waiting_review` 的条目 |
+| `testerBlockedBy` | 所有 `developer.status != review_approved && status != done` 的条目 |
+| `integratorBlockedBy` | 所有 `role != integrator && status != done` 的条目;`blocked` 仍阻塞 integrator |
 
-**无 `<context>`**:AskUserQuestion,提供 plan 推断建议与默认 brief:
+承接规则:
 
-```
-当前 worktree 尚未明确职责。请选择:
-(a) 重构命令解析器                  (来自 plan)
-(b) 实现 RBAC 中间件                (来自 plan)
-(c) 使用默认描述:独立完成 plan 中分配的全部任务(全栈开发,含测试)
-(d) 其他(请说明)
-```
+- reviewer:若 `eligibleReviewTargets` 非空,按 `role-reviewer.md` 审查目标;否则等待。
+- tester:若 `testerBlockedBy` 为空,按 `role-test.md` 测试;否则等待列出的 developer。
+- integrator:若 `integratorBlockedBy` 为空,按 `role-integrator.md` 合并;否则等待列出的条目。
 
-各角色默认 brief:
+## 输出格式
 
-| 角色          | 默认 brief                                                           |
-| ------------- | -------------------------------------------------------------------- |
-| `developer`   | 独立完成 plan 中分配的全部任务(全栈开发,含测试)                     |
-| `reviewer`    | 审查所有 developer 的交付,确保代码质量与 plan 一致                  |
-| `tester`      | 执行全面测试(security / boundary / performance / integration)        |
-| `integrator`  | 合并所有 feature 分支到主干,解决冲突,产出 release candidate         |
+注册成功至少汇报:
 
-- 选项 (a)(b) 由 plan.md 内容推断生成
-- 选 (d) 后接一轮自由文本输入
-- 用户放弃或输入空 → 中止注册,kanban 不被修改
-- **brief 不允许为空或占位符**
-
-### 4. 冲突处理
-
-**已有条目是同角色**(通过 cwd 匹配):幂等处理,更新 brief 和 cwd:
-```
-⚠️  worktree dev-serve 已注册为 developer,本次刷新了 brief。
-```
-
-**已有条目是不同角色**:拒绝操作:
-```
-❌ worktree dev-serve 已注册为 reviewer,跨角色切换请走:
-   /kanban --update <uuid> add:developer:dev-serve:'{"brief":"..."}'
-```
-
-### 5. 写入
-
-`withKanbanLock` 一次性写入:
-
-| 字段         | 值                        |
-| ------------ | ------------------------- |
-| `brief`      | `<context>` 或追问结果    |
-| `cwd`        | `basename(pwd)`           |
-| `status`     | `"idle"`                  |
-| `attempt`    | `0`                       |
-| `report`     | `null`                    |
-| `review`     | `null`                    |
-| `error`      | `null`                    |
-| `blocked_on` | `null`                    |
-
-若任务 `status == "draft"`,注册后**不自动提升**到 planned,保持 draft。
-
-若 role=developer 且 task.status ∈ {planned, in_progress} 且 blocked_on 为空,注册时自动将 developer 条目 status 设为 `"working"`、attempt 设为 `1`。若此时 task.status 为 `"planned"`,同步提升为 `"in_progress"`。
-
-### 6. 角色自然承接动作
-
-注册完成后,根据角色自动执行下一步。Agent 主动推进,无需 Human 额外指令。
-
-#### developer
-
-自动领取判断(脚本层完成,Agent 层读取输出):
-
-1. 读 plan.md,找到与 brief 匹配的节；若存在 `plan-*.md` 子计划,优先读取与席位/brief 对应的子计划
-2. 脚本自动检查条件:
-   - task.status ∈ {planned, in_progress} 且 blocked_on 为空 → **自动 working + attempt+1**,task.status 从 planned 提升为 in_progress(若适用)
-   - developer.status == "follow_issue" → **自动 working**,先读取 owner 为自己的 open issue 再修复
-   - task.status == "draft" → 保持 idle,报告"任务尚在 draft,需先提升到 planned"
-   - blocked_on 有值 → 保持 idle,报告阻塞项
-3. Agent 根据脚本输出(`autoStarted` / `autoStartReason`)生成报告
-4. 展示 plan 节清单后，**直接开始第一项工作**。禁止追问"从哪里开始"、"是否开始"、"是否同意"等确认性问题
-5. 若用户在此阶段给出肯定回复（如"ok"、"可以"、"开始"、"好"、"继续"），视为推进信号，直接开工，不重复展示计划
-
-#### reviewer
-
-读取 `query.ts <uuid>` 尾部 JSON:
-
-- 看 `currentEntry.role/status`,确认自己是 reviewer
-- 看 `eligibleReviewTargets`
-- 看 `recommendedNextAction`,只作为短提示
-
-承接判断:
-
-1. `eligibleReviewTargets.length > 0` → 列出清单:
-   ```
-   📝 待审: dev-serve (重构命令解析器), dev-api (RBAC 中间件)
-   建议: 选择一个待审项,开始 review 流程
-   ```
-2. `eligibleReviewTargets.length == 0` → 保持在 idle:
-   ```
-   ℹ️ 当前无待审任务,等待 developer 提交
-   ```
-
-#### tester
-
-读取 `query.ts <uuid>` 尾部 JSON:
-
-- 看 `currentEntry.role/status`,确认自己是 tester
-- 看 `testerBlockedBy`
-- 看 `recommendedNextAction`,只作为短提示
-
-承接判断:
-
-1. `testerBlockedBy.length == 0` → `✅ 所有 developer 交付已通过审查或已完成,可以开始测试`
-2. `testerBlockedBy.length > 0` → `⚠️ 以下 worktree 尚未通过审查或完成: dev-serve(working), dev-api(waiting_review)`
-
-#### integrator
-
-读取 `query.ts <uuid>` 尾部 JSON:
-
-- 看 `currentEntry.role/status`,确认自己是 integrator
-- 看 `integratorBlockedBy`
-- 看 `recommendedNextAction`,只作为短提示
-
-承接判断:
-
-1. `integratorBlockedBy.length == 0` → `✅ 所有分支已就绪,可以开始合并`
-2. `integratorBlockedBy.length > 0` → `⚠️ 以下条目尚未完成: developer.dev-serve(done 前状态), tester.full-test(waiting)`
-
-#### 认领席位时的输出格式
-
-```
-✅ <worktree> 已注册 [<role>]（认领自预分配席位 <presetName>）
-Task: <short-uuid> (<description>)
-Brief:  <brief>
-Status: <idle 或 working>
-
-<角色自然承接报告>
-
-Plan 对应节: ## <匹配节标题> (若 plan.md 存在)
-```
-
-#### 通用输出格式
-
-```
+```text
 ✅ <worktree> 已注册 [<role>]
-Task:   <short-uuid> (<description>)
-Brief:  <brief>
+Task: <short-uuid> (<description>)
+Brief: <brief>
+Stable key: <stableKey>
 Status: <idle 或 working>
-
-<角色自然承接报告>
-
-Plan 对应节: ## <匹配节标题>    (若 plan.md 存在)
 ```
 
-## 与 `--update` 的关系
-
-`--role` 是**首次注册**的快捷入口,只操作当前 cwd 对应的 role 条目。注册完成后的任何字段修改(换 brief、换 role)都走 `--update`。
+若认领预分配席位,补充 `claimedFrom`。若脚本输出 `autoStarted` 或 `autoStartReason`,必须转述。若能匹配 plan 节或子计划,补充对应标题。
 
 ## 实现脚本
 
@@ -278,12 +148,11 @@ bun run $SCRIPTS/role.ts \
   [--claim-from <presetName>]
 ```
 
-`--claim-from` 仅当用户在步骤 2.5 选择了认领预分配席位时才传入。
+stdout 关键字段:
 
-Agent 层负责交互采集(role 校验、brief 追问、任务定位),脚本只接收已决策的参数并执行写入。
+- `stableKey`:后续 `agent-write.ts --worktree <stableKey>` 的参数。
+- `autoStarted`:developer 是否已自动进入 working。
+- `autoStartReason`:未自动开工的原因。
+- `claimedFrom`:认领的预分配席位名。
 
-> **stableKey**：`role.ts` stdout 包含 `stableKey` 字段。认领席位后 Agent 应使用 stableKey
-> 作为后续 `agent-write.ts --worktree <stableKey>` 的参数，而非 `basename(pwd)`。
-> Path B 自动触发时，SKILL.md 已指示记录 stable key，同理。
-
-若用户在 `/kanban --thread <id> --role <role> ...` 后追加 `--standby`，Agent 在注册成功后读取 `stableKey`，再加载 `references/cmd-standby.md` 进入待命循环。`integrator --standby` 在 v1 中拒绝。
+若用户在 `/kanban --thread <id> --role <role> ...` 后追加 `--standby`,注册成功后读取 `stableKey`,再加载 `cmd-standby.md`。v1 拒绝 `integrator --standby`。

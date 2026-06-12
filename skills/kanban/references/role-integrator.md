@@ -32,7 +32,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 ├─ 4. 逐个合并功能分支
 │   ├─ 简单冲突(格式、空白) → 自行解决
 │   └─ 语义冲突 → 标记并升级给对应 developer
-│       → 对方 developer 条目 blocked_on = [<冲突说明>]
+│       → integrator.conflicts 记录冲突并汇报需要 developer 介入
 │
 ├─ 5. 运行完整回归测试套件
 │
@@ -117,29 +117,46 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 
 ### 语义冲突无法自行判断
 
-在 integration report 中**显式声明**冲突,执行:
-- ```bash
-  bun run $SCRIPTS/agent-write.ts \
-    --thread <uuid> \
-    --worktree <对方> \
-    --set integration=conflict \
-    --set blocked_on=<冲突文件与说明>
-  ```
+在 integration report 中显式声明冲突。若冲突可归属到某个 developer,必须同时创建 issue,让该 developer 进入 `follow_issue`;只写 integrator 自身 `conflicts/error` 不会触发 developer 承接。
 
-汇报时明确指出哪些 worktree 存在冲突,需要 developer 介入修复。
-
-### 回归测试失败
-
-在 integration report 里**显式声明**失败原因和指向的具体 worktree,不自行修复。执行:
+1. 记录 integrator 自身冲突:
 - ```bash
   bun run $SCRIPTS/agent-write.ts \
     --thread <uuid> \
     --worktree <你> \
-    --set status=blocked \
-    --set error=回归测试失败: <一句话>
+    --set conflicts='["<冲突文件与说明>"]' \
+    --set 'error=语义冲突需要 developer 介入'
+  ```
+2. 为对应 developer 创建可承接 issue:
+   ```bash
+   bun run $SCRIPTS/issue.ts open \
+     --thread <uuid> \
+     --test <tester-key> \
+     --owner <developer-key> \
+     --title "<集成冲突标题>" \
+     --reproduction "<冲突文件与合并命令>" \
+     --expected "<期望的合并语义>" \
+     --actual "<实际冲突或失败>" \
+     --diagnosis "<初步判断>" \
+     --blocker "<为什么阻塞集成>" \
+     --retest "<developer 修复后 integrator/tester 的验证步骤>" \
+     --related-report integration-<NN>.md
+   ```
+
+若无法归属到 developer,必须在汇报中明确这是 Human 手动分派路径,并保持 integrator `status=working`;不要声称 developer 会自动接手。
+
+### 回归测试失败
+
+在 integration report 里显式声明失败原因和指向的具体 worktree,不自行修复。可归属到 developer 时,按上方 issue 流程把 owner developer 转为 `follow_issue`。同时执行:
+- ```bash
+  bun run $SCRIPTS/agent-write.ts \
+    --thread <uuid> \
+    --worktree <你> \
+    --set status=working \
+    --set 'error=回归测试失败: <一句话>'
   ```
 
-等待 developer 修复后重新触发集成。
+等待 developer 修复并重新通过 reviewer / tester 后,再重新触发集成。
 
 ## 禁忌
 
