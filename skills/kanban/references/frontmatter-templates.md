@@ -66,6 +66,19 @@ approve(或 reject,并列要改的点)
 - [x] 测试覆盖
 - [x] 兼容性
 
+## Plan Alignment
+- plan / brief 要求:
+- 实现对应证据:
+- 偏离或未覆盖:
+
+## Code Health
+- 结构、命名、可读性:
+- 可维护性风险:
+
+## Testability / Risk
+- 已有测试证据:
+- 仍需 tester 重点覆盖:
+
 ## Findings
 - (若 reject)要改的点 1:…… 文件:path:line
 - (若 reject)要改的点 2:……
@@ -100,7 +113,10 @@ approve（或 changes_requested，并列需修改的点）
 
 ## Checklist
 - [ ] 目标明确，范围合理
+- [ ] 具体动作清晰，可指导 developer 实施
+- [ ] 涉及对象、边界和不做事项已列明
 - [ ] 技术方案可行
+- [ ] 验收方式可执行
 - [ ] 风险已识别并有缓解措施
 - [ ] 工作量估算合理
 - [ ] 依赖与前置条件已列明
@@ -112,6 +128,44 @@ approve（或 changes_requested，并列需修改的点）
 ## Suggestions
 - 建议 1：……
 - 建议 2：……
+```
+
+## test-cases
+
+文件:`test-cases-<NN>.md`
+
+```markdown
+---
+kind: test-cases
+uuid: 019d9b9f-...
+tester_worktree: test
+role: tester
+attempt: 1
+created: 2026-04-18T16:00:00+08:00
+updated: 2026-04-18T16:10:00+08:00
+status: draft                      # draft | human_reviewed | revised
+source_plan: ~/.kanban/wave/019d9b9f.../plan.md
+covered_worktrees:
+  - dev-serve
+related_reports:
+  - report-dev-serve-01.md
+  - review-dev-serve-01.md
+human_reviewed_at: null
+---
+
+# Test Cases — attempt 01
+
+## Scope
+- 本轮验证目标
+
+## Cases
+| ID | Source | Scenario | Expected | Priority | Status |
+|----|--------|----------|----------|----------|--------|
+| TC-01 | plan / brief | 用户路径、命令或操作 | 期望结果 | must | draft |
+
+## Revision Notes
+- 初版基于 plan / brief 设计
+- 根据 dev report / review / issue 增补的用例记录在这里
 ```
 
 ## test-report
@@ -127,6 +181,7 @@ role: tester
 attempt: 1
 created: 2026-04-18T16:30:00+08:00
 verdict: pass                      # pass | fail
+related_case_document: test-cases-01.md
 covered_worktrees:
   - dev-serve
   - dev-gui
@@ -140,6 +195,16 @@ pass(或 fail + 失败原因摘要)
 ## Environment
 - OS / runtime 版本
 - 测试命令
+
+## Case Document
+- Source: test-cases-01.md
+- Human review status: draft / human_reviewed / revised
+
+## Test Cases
+| Case | Source | Expected | Result | Evidence |
+|------|--------|----------|--------|----------|
+| 关键路径 1 | plan / brief | 期望结果 | pass / fail | 命令或手工证据 |
+| 失败路径 1 | risk / issue | 期望结果 | pass / fail | 命令或手工证据 |
 
 ## Results
 - Unit: 120 pass / 0 fail

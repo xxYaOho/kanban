@@ -41,6 +41,7 @@ const AGENT_WRITABLE_FIELDS = new Set([
   "blocked_on",   // developer
   "reports",      // developer (JSON array)
   "review",       // developer (string)
+  "case_document", // tester (string)
   "pass",         // reviewer + tester
   "fail",         // tester
   "report",       // reviewer + tester + integrator (string)
@@ -170,7 +171,7 @@ function parseValue(key: string, raw: string): unknown {
       }
     }
     default:
-      // review, report, error, blocked_on - 字符串原样
+      // review, report, case_document, error, blocked_on - 字符串原样
       return raw;
   }
 }

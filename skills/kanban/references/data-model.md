@@ -44,6 +44,7 @@
         "attempt": 0,
         "worktree": null,
         "cwd": null,
+        "case_document": "",
         "pass": [],
         "fail": [],
         "report": "",
@@ -84,7 +85,7 @@
 | `status`, `description`, `plan`, `draft`, `repo`, `created` | 人工领域 | `/kanban --new` / `--update` |
 | `<role>.<name>.brief` | 人工领域 | `/kanban --new` / `--update` / `--role` |
 | `<role>.<name>.cwd`, `<role>.<name>.worktree` | 系统 | `scripts/role.ts` 认领/注册时自动写入 |
-| `<role>.<name>.status / reports / review / pass / fail / report / merged / conflicts / attempt / error / blocked_on` | Agent 领域 | `scripts/agent-write.ts` |
+| `<role>.<name>.status / reports / review / case_document / pass / fail / report / merged / conflicts / attempt / error / blocked_on` | Agent 领域 | `scripts/agent-write.ts` |
 | `updated` | 系统 | 每次写锁内自动刷新 |
 
 ## 状态机
@@ -165,6 +166,7 @@ Issue 状态：
 │   ├── plan.md
 │   ├── report-<worktree>-<NN>.md
 │   ├── review-<worktree>-<NN>.md
+│   ├── test-cases-<NN>.md
 │   ├── test-<NN>.md
 │   ├── issue-<slug>.md
 │   └── archive/

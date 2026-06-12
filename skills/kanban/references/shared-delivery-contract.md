@@ -17,7 +17,7 @@
 |------|----------|--------|
 | developer | `dev-report` | `report-<worktree>-<NN>.md` |
 | reviewer | `review` / `plan-review` | `review-<dev>-<NN>.md` / `plan-review-<NN>.md` |
-| tester | `test-report` | `test-<NN>.md` |
+| tester | `test-cases` / `test-report` | `test-cases-<NN>.md` / `test-<NN>.md` |
 | integrator | `integration-report` | `integration-<NN>.md` |
 
 报告 frontmatter 统一读 `references/frontmatter-templates.md`。实际写文件时优先使用 `assets/report-skeletons/*.md` 的对应骨架。

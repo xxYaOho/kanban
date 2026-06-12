@@ -124,6 +124,7 @@ function normalizeWorktrees(raw: unknown): {
           attempt: 0,
           worktree: null,
           cwd: null,
+          case_document: "",
           pass: [],
           fail: [],
           report: "",

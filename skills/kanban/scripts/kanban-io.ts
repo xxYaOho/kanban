@@ -56,6 +56,7 @@ export interface TesterEntry {
   attempt: number;
   worktree: string | null;
   cwd: string | null;
+  case_document: string;
   pass: string[];
   fail: string[];
   report: string;
@@ -227,6 +228,7 @@ export function migrateTask(task: Task): void {
             attempt: wt.attempt ?? 0,
             worktree: wt.cwd ?? null,
             cwd: wt.cwd ?? null,
+            case_document: "",
             pass: [],
             fail: [],
             report: extractReportFilename(wt.report),
@@ -254,6 +256,11 @@ export function migrateTask(task: Task): void {
 
   task.developer = developer;
   task.reviewer = reviewer;
+  for (const entry of Object.values(tester)) {
+    if (typeof (entry as any).case_document !== "string") {
+      (entry as any).case_document = "";
+    }
+  }
   task.tester = tester;
   task.integrator = integrator;
   delete task.test;

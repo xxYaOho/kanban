@@ -223,6 +223,7 @@ async function main() {
           attempt: 0,
           worktree: args.worktree === "main" ? null : args.worktree,
           cwd: args.worktree === "main" ? null : args.worktree,
+          case_document: "",
           pass: [],
           fail: [],
           report: "",

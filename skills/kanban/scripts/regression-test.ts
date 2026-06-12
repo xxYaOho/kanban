@@ -112,6 +112,7 @@ async function seedTask(home: string): Promise<string> {
           attempt: 0,
           worktree: null,
           cwd: null,
+          case_document: "",
           pass: [],
           fail: [],
           report: "",
@@ -125,6 +126,7 @@ async function seedTask(home: string): Promise<string> {
           attempt: 0,
           worktree: "full",
           cwd: "full",
+          case_document: "",
           pass: [],
           fail: [],
           report: "",
@@ -234,6 +236,23 @@ async function testRoleAlias(home: string): Promise<void> {
   const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
   assert(data[uuid].tester.legacy.brief === "Legacy alias refresh", "legacy tester brief should update task.tester");
   assert(!("test" in data[uuid]), "task.test should be removed on write");
+}
+
+async function testTesterCaseDocumentWrite(home: string): Promise<void> {
+  const result = runScript(home, "agent-write.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--worktree",
+    "full",
+    "--set",
+    "case_document=test-cases-01.md",
+  ]);
+  expectOk(result, "tester case_document write");
+  const json = parseJson(result.stdout);
+  assert(json.applied.includes("case_document=test-cases-01.md"), "agent-write should report case_document update");
+
+  const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  assert(data[uuid].tester.full.case_document === "test-cases-01.md", "tester case_document should persist");
 }
 
 async function testIssueLifecycle(home: string, taskDir: string): Promise<void> {
@@ -712,6 +731,7 @@ async function main() {
     const taskDir = await seedTask(home);
     await testQueryJson(home);
     await testRoleAlias(home);
+    await testTesterCaseDocumentWrite(home);
     await testIssueLifecycle(home, taskDir);
     await testRelatedIssueGuard(home, taskDir);
     testStandbyWaitBackoff();

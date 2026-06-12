@@ -39,6 +39,15 @@ enter
 5. **报告完整性**:dev report frontmatter 字段齐全
    - 修复 open issue 的 report 必须包含 `related_issue: issue-*.md`
 
+## 履职原则
+
+Reviewer 的目标不是只找 bug,而是判断 developer 是否忠实完成 plan / brief。
+必须同时检查需求符合度、实现完整性、代码健康、测试可行性和回归风险。
+如果实现偏离 plan,即使代码能跑,也应 reject 或记录为阻塞风险。
+如果 report、diff、测试证据三者无法互相印证,不得 approve。
+Approve 必须说明为什么当前实现可以交给 tester,而不只是"未发现问题"。
+Reject 必须给出 developer 可执行的修改点,而不是抽象评价。
+
 ## 提交 review
 
 先遵守 `references/shared-delivery-contract.md` 的固定顺序。
@@ -143,6 +152,15 @@ enter
 - 计划评审不影响任何 developer 条目的 `status`
 - `plan-review-<NN>.md` 的 NN 编号独立于 `review-<dev>-<NN>.md`
 - 若 reviewer 的 `report` 字段已有值（如之前的 review-summary），本次更新会覆盖。旧文件仍在磁盘上
+
+### Plan Review 原则
+
+Plan Review 的目标是判断计划能否指导 developer 实施,不是只判断方向是否正确。
+计划必须说明目标、范围、具体动作、涉及对象、验收方式和主要风险。
+对"整理文件"、"优化体验"、"完善逻辑"这类泛化动作,必须要求拆成可执行行为。
+每个关键动作应能回答:改哪里、怎么改、不改哪里、完成后如何验证。
+如果计划允许 developer 做出多种互相冲突的解释,应要求修改计划。
+Approve 必须说明该计划为什么已经足以开工;changes_requested 必须给出具体补充项。
 
 ## 禁忌
 

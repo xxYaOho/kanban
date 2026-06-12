@@ -21,6 +21,19 @@ approve(或 reject,并列要改的点)
 - [x] 测试覆盖
 - [x] 兼容性
 
+## Plan Alignment
+- plan / brief 要求:
+- 实现对应证据:
+- 偏离或未覆盖:
+
+## Code Health
+- 结构、命名、可读性:
+- 可维护性风险:
+
+## Testability / Risk
+- 已有测试证据:
+- 仍需 tester 重点覆盖:
+
 ## Findings
 - (若 reject)要改的点 1:…… 文件:path:line
 - (若 reject)要改的点 2:……
