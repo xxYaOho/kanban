@@ -97,7 +97,7 @@ owner closeout guard 必须使用这个判定。
 必须实现的 action:
 
 1. `owner.register`
-   - 前置: task 无 owner,且没有任何席位进入工作状态。
+   - 前置: task 无 owner,且尚未创建任何 developer / reviewer / tester / integrator 席位。
    - 写入: `owner.<key>`。
 
 2. `owner.request-reviewer-gate`
@@ -209,19 +209,20 @@ owner closeout guard 必须使用这个判定。
 
 修改范围:
 
-- `benchmarks/approval-platform/`
+- `benchmarks/replica-blenderhunt/`
+- `benchmarks/approval-platform/` 仅保留历史 smoke baseline,不再扩展为主 benchmark
 
 工作:
 
-1. 补 `prompt.md` 模板。
-2. 补 `injected-risks.md` 模板。
-3. 补 `expected-findings.md` 模板。
-4. 保持 A/B/C 使用同一 scenario seed 和 risk set。
-5. scorecard 记录 injected 分母和 missed risk rate。
+1. 以 `benchmarks/replica-blenderhunt/PRD.md` 作为主 benchmark 需求真源。
+2. 保持 `AGENTS.md` 只说明目标、约束、交付物和时间打点,不复制 kanban 角色职责或任务拆分规则。
+3. 保持每次 run 复用同一 PRD / DESIGN / token 资源,对比完成时长、交付质量、截图和 kanban artifact。
+4. 记录从 owner 创建 thread、multi-plan、席位推进、tester 验收到 owner closeout 的关键时间点。
+5. 保留 approval-platform 已有 run 作为历史单 Agent smoke baseline,但不作为 vNext 主对比项目。
 
 验证:
 
-- 能手工创建一次空 run 目录并填表。
+- 能手工创建一次 replica-blenderhunt run 目录并填表。
 - benchmark 不依赖 `skills/kanban` 运行时加载。
 
 ## 阶段提交建议

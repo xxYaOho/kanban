@@ -4,7 +4,7 @@
 
 ## 职责
 
-在分配给你的 worktree 里,按 `plan.md` + `developer.<你>.brief` 执行开发工作。若任务目录存在 `plan-*.md`,必须先读主 `plan.md`,再读与自己 brief/席位名对应的子计划。完成或阶段性中断时写 **dev report**,原子更新 `developer.<你>.status`。
+在分配给你的 worktree 里,按 `plan.md` + `developer.<你>.brief` 执行开发工作。若任务目录存在 `plan-*.md`,必须先读主 `plan.md`,再读与自己 brief/席位名对应的子计划。完成或阶段性中断时写 **dev report** 和 **self-review**,再通过 guarded action 原子更新 `developer.<你>.status`。
 
 ## 工作循环
 
@@ -34,8 +34,11 @@ enter(cwd = <worktree>)
 │      → bun run agent-write.ts --thread <uuid> --worktree <你> --set status=working
 │      → 修完后同 "working" 的提交流程
 │
+├─ status == "ready_for_test"
+│   └─ 不重复劳动;提示用户:已交,等 tester
+│
 ├─ status == "waiting_review"
-│   └─ 不重复劳动;查看 plan 有无补充,否则提示用户:已交,等 reviewer
+│   └─ owner 已插入 reviewer gate;不重复劳动,等 reviewer
 │
 ├─ status == "blocked"
 │   └─ 读 blocked_on,先解阻塞
@@ -44,28 +47,32 @@ enter(cwd = <worktree>)
     └─ 无事可做。问用户是否需要额外修改
 ```
 
-## 提交 dev report
+## 提交 dev report 与 self-review
 
 先遵守 `references/shared-delivery-contract.md` 的固定顺序。
 
 完成一次实现(或阶段性里程碑)时:
 
-1. **报告文件名**:`~/.kanban/<repo>/<uuid>/report-<worktree>-<NN>.md`
+1. **报告文件名**:
+   - `~/.kanban/<repo>/<uuid>/report-<worktree>-<NN>.md`
+   - `~/.kanban/<repo>/<uuid>/self-review-<worktree>-<NN>.md`
    - NN 用两位零填充,递增(01, 02, 03)
    - `NN = current_attempt`
-2. **frontmatter + 正文**:先读 `references/frontmatter-templates.md` 的 `dev-report` 模板；实际写文件时优先使用 `assets/report-skeletons/dev-report.md`
+2. **frontmatter + 正文**:先读 `references/frontmatter-templates.md` 的 `dev-report` 和 `self-review` 模板；实际写文件时优先使用 `assets/report-skeletons/dev-report.md` 和 `assets/report-skeletons/self-review.md`
    - 若存在对应子计划,`related_plan` 指向该 `plan-*.md`
    - 若本次修复 open issue,`related_issue` 必须指向对应 `issue-*.md`
+   - dev report 的 `self_review` 必须指向同 attempt 的 self-review
+   - self-review 的 `source_report` 必须指向同 attempt 的 dev report
    - 必要时在正文 Notes 里补充主计划路径
-3. **原子提交**(两条命令,顺序执行):
-   - ```bash
-     bun run $SCRIPTS/agent-write.ts \
-       --thread <uuid> \
-       --worktree <你> \
-       --set status=waiting_review \
-       --set report=~/.kanban/<repo>/<uuid>/report-<你>-<NN>.md \
-       --set error=null
-     ```
+3. **原子提交**:
+   ```bash
+   bun run $SCRIPTS/action-write.ts \
+     --action developer.submit-report \
+     --thread <uuid> \
+     --worktree <你> \
+     --report report-<你>-<NN>.md \
+     --self-review self-review-<你>-<NN>.md
+   ```
    - 若任务顶层 `status == "planned"` 且本次是第一个进入 working 的 worktree:
      ```bash
      bun run $SCRIPTS/update-task.ts \
@@ -75,13 +82,14 @@ enter(cwd = <worktree>)
    ```
    ✅ dev-serve 报告已提交 (attempt 01)
       Report: report-dev-serve-01.md
-      Status: working → waiting_review
-   下一步:等 reviewer。可切到其他 worktree 继续。
+      Self-review: self-review-dev-serve-01.md
+      Status: working → ready_for_test
+   下一步:等 tester。若 owner 插入 reviewer gate,状态会进入 waiting_review。
    ```
 
 ## MANDATORY COMPLETION CHECKLIST
 
-在对话中报告 `waiting_review` 之前，必须完成 `references/shared-delivery-contract.md`，并额外满足 developer 的两项要求:
+在对话中报告 `ready_for_test` 或 `waiting_review` 之前，必须完成 `references/shared-delivery-contract.md`，并额外满足 developer 的两项要求:
 
 1. **Commit 代码**
    ```bash
@@ -112,13 +120,13 @@ enter(cwd = <worktree>)
 
 ### 本地测试失败
 
-小问题:自行修复后继续。大问题(多次失败):在 dev report 里**显式声明**失败原因,status 依然走 `waiting_review`(让 reviewer 判断策略)。
+小问题:自行修复后继续。大问题(多次失败):在 dev report 和 self-review 里**显式声明**失败原因。默认仍提交到 `ready_for_test`,除非 owner 已插入 reviewer gate。
 
 ## 禁忌
 
 - ❌ 跨 worktree 写别人的 report/review/test-report 文件
 - ❌ 修改 `plan.md`(plan 变更必须走 `/kanban --update plan=...`)
-- ❌ 直接把自己置为 `done`(`done` 由 reviewer approve + tester 通过后联合决定,见 role-reviewer.md)
+- ❌ 直接把自己置为 `done`(`done` 由 tester 验收后决定;owner closeout 决定任务顶层完成)
 - ❌ 修复 open issue 时提交不含 `related_issue` 的 dev report
 - ❌ 跳过 `withKanbanLock` 改 kanban.json
 - ❌ 在 `status=draft` 的任务里开工(先让用户提升到 planned)

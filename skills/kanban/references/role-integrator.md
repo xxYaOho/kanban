@@ -4,7 +4,7 @@
 
 ## 职责
 
-集成是协作链的最后一环。将所有通过测试的功能分支合并回 main,解决冲突,产出可交付的 release candidate,并清理已完成的 git worktree。
+集成是 owner 按需升级的复杂合并席位。将所有通过测试的功能分支合并回 main,解决冲突,产出可交付的 release candidate,并写 integration report。任务顶层 `done` 由 owner closeout 完成。
 
 `integrator` 是职责名,不要求独立 Agent。若用户指定由 main / owner 兼任主线收尾,仍按本手册执行。
 
@@ -40,13 +40,9 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 │
 ├─ 7. 更新 kanban(锁内)
 │   ├─ integrator.<你>.merged / conflicts 记录合并结果
-│   ├─ integrator.<你>.status = "done"
-│   └─ 任务顶层 status 提升为 "done"
+│   └─ integrator.<你>.status = "done"
 │
-└─ 8. 清理已完成 worktree
-    ├─ git worktree list --porcelain
-    ├─ 移除 clean 的 developer/tester worktree
-    └─ 跳过 main、当前工作区、reviewer、dirty worktree 和无法定位的条目
+└─ 8. 通知 owner 执行 closeout
 ```
 
 ## 提交 integration report
@@ -75,13 +71,8 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
        --set merged='["feature/dev-a"]' \
        --set conflicts='[]'
      ```
-   - 任务收尾:
-     ```bash
-     bun run $SCRIPTS/update-task.ts \
-       <uuid> set:status=done
-     ```
 4. **清理已完成 worktree**:
-   - 仅在主线合并完成、完整回归通过、integration report 已写入、任务顶层 `status=done` 后执行。
+   - 仅在主线合并完成、完整回归通过、integration report 已写入、owner closeout 已完成并且任务顶层 `status=done` 后执行。
    - 用 `git worktree list --porcelain` 查看真实 worktree 路径；按 kanban 中 developer / tester 条目的 `cwd` 或 `worktree` 名称匹配。
    - 对 clean worktree 执行:
      ```bash
@@ -97,8 +88,9 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
       Merged: feature/cli-v014-serve, feature/cli-v014-gui
       Conflicts: 3 resolved / 0 escalated
       Regression: pass
-      Cleanup: removed 2 worktrees / skipped 1 dirty worktree
+      Cleanup: deferred until owner closeout
       Status: working → done
+      下一步:owner closeout
    ```
 
 ## MANDATORY COMPLETION CHECKLIST
@@ -108,8 +100,8 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 1. **验证前置条件**：所有 developer worktree 测试通过，无 blocked 状态
 2. **创建集成分支并合并**：`git checkout -b integration/<tag>-attempt-<NN> main`，逐个合并功能分支
 3. **运行完整回归测试套件**
-4. **原子更新 kanban 状态**（按上方命令执行：更新自身 done / merged / conflicts，更新任务顶层 done）
-5. **清理已完成 worktree**：仅移除 clean 的 developer/tester worktree,不删除分支；dirty 或无法定位的 worktree 必须汇报
+4. **原子更新 kanban 状态**（按上方命令执行：更新自身 done / merged / conflicts；任务顶层 done 由 owner closeout 处理）
+5. **清理已完成 worktree**：仅在 owner closeout 后移除 clean 的 developer/tester worktree,不删除分支；dirty 或无法定位的 worktree 必须汇报
 
 > 不写 integration report = 集成未发生。所有证据必须在文件系统中。
 
@@ -156,13 +148,13 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
     --set 'error=回归测试失败: <一句话>'
   ```
 
-等待 developer 修复并重新通过 reviewer / tester 后,再重新触发集成。
+等待 developer 修复并重新通过 tester 或 owner 指定的 reviewer gate 后,再重新触发集成。
 
 ## 禁忌
 
 - ❌ 前置条件不满足时强制合并
 - ❌ 对语义冲突自行决策(必须升级给对应 developer)
 - ❌ 标记 done 前跳过回归测试
-- ❌ 在任务顶层 `status=done` 前清理 worktree
+- ❌ 在 owner closeout 且任务顶层 `status=done` 前清理 worktree
 - ❌ 对 dirty worktree 执行 `git worktree remove --force`
 - ❌ 跳过 `withKanbanLock` 改 kanban.json

@@ -118,8 +118,8 @@ Reviewer:
 
 Tester:
 
-- 回测优先:tester 为 `waiting` 时只走回测;若没有 open issue owner developer 重新 `review_approved`,不继续判断全测。
-- 全测:tester 非 `waiting` 且非 `done`,所有 developer 都是 `review_approved` 或 `done`,且至少一个 developer 是 `review_approved`。
+- 回测优先:tester 为 `waiting` 时只走回测;若没有 open issue owner developer 重新 `ready_for_test` 或 `review_approved`,不继续判断全测。
+- 全测:tester 非 `waiting` 且非 `done`,所有 developer 都是 `ready_for_test` / `review_approved` / `done`,且至少一个 developer 是 `ready_for_test` 或 `review_approved`。
 - 动作:按 `role-test.md` 全测或回测。
 
 Developer:
@@ -130,7 +130,7 @@ Developer:
 | B | `review_rejected` | 读最新 review,返工 |
 | C | `follow_issue` | 读 owner 为自己的 open issue,修复 |
 
-`waiting_review`、`under_review`、`review_approved`、`done` 不触发。
+`ready_for_test`、`waiting_review`、`under_review`、`review_approved`、`done` 不触发 developer。
 
 ## Fingerprint
 

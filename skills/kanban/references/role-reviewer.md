@@ -4,7 +4,7 @@
 
 ## 职责
 
-评审所有 `status == "waiting_review"` 的 developer 条目。对每份 dev report 给出 **approve** 或 **reject** 决定,写 **review 文档**,原子更新对应 developer 条目的 `review` 字段与 `status`。若 dev report 含 `related_issue`,reject 时 developer 回到 `follow_issue`,不是普通 `review_rejected`。
+Reviewer 是 owner 按需插入的独立 gate,不再是每个 developer 的默认必经环节。评审所有 `status == "waiting_review"` 的 developer 条目。对每份 dev report 给出 **approve** 或 **reject** 决定,写 **review 文档**,通过 guarded action 原子更新对应 developer 条目的 `review` 字段与 `status`。
 
 Reviewer 不绑定 worktree，可在任意目录注册后工作。注册示例：
 
@@ -21,7 +21,6 @@ enter
 │
 ├─ 若为空
 │   └─ 提示:没有待 review 的工作
-│      可顺带看所有 approved 状态,决定是否推进到 tester
 │
 └─ 对每个 waiting_review 的条目:
     ├─ 读 report-<name>-<NN>.md (任务目录下)
@@ -36,7 +35,7 @@ enter
 2. **代码质量**:命名、结构、可读性、无明显坏味
 3. **测试可行性**:至少关键路径有 unit/integration 覆盖,或报告里解释为何不做
 4. **兼容性**:不破坏其他 developer 的合并基线;不碰 plan.md
-5. **报告完整性**:dev report frontmatter 字段齐全
+5. **报告完整性**:dev report 和 self-review frontmatter 字段齐全
    - 修复 open issue 的 report 必须包含 `related_issue: issue-*.md`
 
 ## 履职原则
@@ -56,46 +55,24 @@ Reject 必须给出 developer 可执行的修改点,而不是抽象评价。
    - NN 与对应 `report-<name>-<NN>.md` 保持一致
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `review` 模板(包括 `verdict: approve | reject` 字段)
 3. **原子更新**:
-   - approve（更新 developer 状态 + 写入 review 路径）:
-     ```bash
-     bun run $SCRIPTS/agent-write.ts \
-       --thread <uuid> \
-       --worktree <dev-name> \
-       --set status=review_approved \
-       --set review=review-<dev-name>-<NN>.md
-     ```
-   - 同时更新 reviewer 自己的 `pass` 和 `report`:
-     ```bash
-     bun run $SCRIPTS/agent-write.ts \
-       --thread <uuid> \
-       --worktree <reviewer-name> \
-       --set pass='["<dev-name>"]' \
-       --set report=review-summary-<NN>.md
-     ```
-   - reject（普通实现回绝:更新 developer 状态 + 写入 review 路径）:
-     ```bash
-     bun run $SCRIPTS/agent-write.ts \
-       --thread <uuid> \
-       --worktree <dev-name> \
-       --set status=review_rejected \
-       --set review=review-<dev-name>-<NN>.md
-     ```
-   - reject（若对应 dev report 含 `related_issue`）:
-     ```bash
-     bun run $SCRIPTS/agent-write.ts \
-       --thread <uuid> \
-       --worktree <dev-name> \
-       --set status=follow_issue \
-       --set review=review-<dev-name>-<NN>.md
-     ```
-     - 同时在 review 正文里列出具体要改的点
+   ```bash
+   bun run $SCRIPTS/action-write.ts \
+     --action reviewer.submit-gate-review \
+     --thread <uuid> \
+     --target <dev-name> \
+     --review review-<dev-name>-<NN>.md \
+     --verdict <approve|reject>
+   ```
+   - approve 后 developer 回到 `ready_for_test`
+   - reject 后 developer 进入 `review_rejected`
+   - review 正文必须列出具体判断依据;reject 必须列出可执行修改点
 4. **汇报**:
    ```
    ✅ dev-serve 已 approved (attempt 01)
    ❌ dev-gui  被 rejected (attempt 02) — 3 条改动要求
    下一步:
      - dev-gui 重新工作
-    - 若所有 dev worktree approved,通知 tester 上场
+     - 若所有 dev worktree ready_for_test,通知 tester 上场
    ```
 
 ## MANDATORY COMPLETION CHECKLIST (Standard Review)
@@ -111,19 +88,7 @@ Reject 必须给出 developer 可执行的修改点,而不是抽象评价。
 
 ## 推进任务
 
-当**所有** developer 条目都进入 `review_approved`:
-- 不要直接把任务设 `done`
-- 让 tester 接力；tester 通过后将各 developer 设为 `done`
-- 若没有 tester 条目(极少数情况),reviewer 可直接将各 developer 设为 `done`:
-  ```bash
-  bun run $SCRIPTS/agent-write.ts \
-    --thread <uuid> --worktree <dev-name> --set status=done
-  ```
-  然后更新 reviewer 自身:
-  ```bash
-  bun run $SCRIPTS/agent-write.ts \
-    --thread <uuid> --worktree <reviewer-name> --set status=done
-  ```
+Reviewer gate 完成后不要直接把任务设为 `done`。tester 仍是默认验收 gate。
 
 ## 非标准评审：Plan Review
 

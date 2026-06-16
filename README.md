@@ -67,17 +67,17 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 
    standby 由等待控制器前台轮询：启动后立即检查，空轮询间隔从 15 秒起每 5 次翻倍，封顶 240 秒，最多 100 次空轮询；触发后由当前 Agent 按角色手册自动履职。
 
-3. **开发与评审循环**
+3. **开发与自审循环**
 
-   developer 完成工作 → 写 dev report → `status` 变为 `waiting_review`  
-   reviewer 读取报告与 diff → 写 review report → **approve** 或 **reject**  
-   reject 时 developer 自动回到 `working` 状态继续修改。若 tester 创建了 open issue，owner developer 会进入 `follow_issue`，修复报告必须引用 `related_issue`。
+   developer 完成工作 → 写 dev report + self-review → `status` 变为 `ready_for_test`。  
+   reviewer 不再是默认必经环节;只有 owner 插入 reviewer gate 时,developer 才进入 `waiting_review` 并等待独立 review。  
+   reject 时 developer 回到 `review_rejected` 状态继续修改。若 tester 创建了 open issue，owner developer 会进入 `follow_issue`，修复报告必须引用 `related_issue`。
 
 4. **测试与集成**
 
-   所有 developer 到达 `review_approved` 或 `done` 后进入 tester 阶段。tester 必须在自己的 worktree 合并相关 developer 分支；测试通过后，tester 将本轮通过的 developer 收尾为 `done`。`developer.done` 是 tester pass 后的完成态，不再阻塞后续 tester 判断。
+   所有 developer 到达 `ready_for_test`、`review_approved` 或 `done` 后进入 tester 阶段。tester 必须在自己的 worktree 合并相关 developer 分支；测试通过后，tester 将本轮通过的 developer 收尾为 `done`。`review_approved` 仅作为 v1 兼容状态保留。
 
-   发现问题时，tester 先定位并创建 issue；owner developer 进入 `follow_issue`，修复后重新提交并通过 review，tester 再回测 issue。最终 integrator / main 收尾者合并主线、运行回归、提交 integration report、将任务置为 `done`，再清理已完成且干净的 developer / tester worktree。
+   发现问题时，tester 先定位并创建 issue；owner developer 进入 `follow_issue`，修复后重新提交 dev report + self-review 并回到 `ready_for_test`，tester 再回测 issue。复杂合并可由 owner 升级给 integrator；最终由 owner 写 owner closeout 并将任务置为 `done`。
 
    `/kanban --clear` 只归档 `~/.kanban` 中的任务资料，不删除真实 git worktree。
 

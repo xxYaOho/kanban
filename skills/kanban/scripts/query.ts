@@ -227,7 +227,9 @@ function buildTesterBlockedBy(task: Task): EntrySummary[] {
 
 function buildIntegratorBlockedBy(task: Task): EntrySummary[] {
   const blockers: EntrySummary[] = [];
-  for (const role of roleKeys().filter((rk) => rk !== "integrator")) {
+  const hasReviewGate = buildEligibleReviewTargets(task).length > 0;
+  for (const role of roleKeys().filter((rk) => rk !== "integrator" && rk !== "owner")) {
+    if (role === "reviewer" && !hasReviewGate) continue;
     for (const [key, entry] of Object.entries(task[role] ?? {})) {
       const summary = summarizeEntry(role, key, entry);
       if (summary.status !== "done") {
@@ -257,7 +259,7 @@ function buildRecommendedNextAction(
       case "idle":
         return "读取 plan.md 与匹配子计划，开始 developer 工作。";
       case "working":
-        return "继续实现，完成后先写 dev report 再转 waiting_review。";
+        return "继续实现，完成后提交 dev report + self-review，再转 ready_for_test。";
       case "follow_issue":
         return "读取 owner 为自己的 open issue，修复后提交带 related_issue 的 dev report。";
       case "ready_for_test":
@@ -279,6 +281,17 @@ function buildRecommendedNextAction(
     }
   }
 
+  if (currentEntry.role === "owner") {
+    if (currentEntry.status === "done") return "owner closeout 已完成。";
+    if (eligibleReviewTargets.length > 0) {
+      return `存在 reviewer gate 待处理: ${shortList(eligibleReviewTargets)}。`;
+    }
+    if (testerBlockedBy.length > 0) {
+      return `等待 developer ready_for_test: ${shortList(testerBlockedBy)}。`;
+    }
+    return "检查 tester / integrator 结果，满足条件后执行 owner closeout。";
+  }
+
   if (currentEntry.role === "reviewer") {
     if (eligibleReviewTargets.length > 0) {
       return `审查 waiting_review 交付: ${shortList(eligibleReviewTargets)}。`;
@@ -289,7 +302,7 @@ function buildRecommendedNextAction(
   if (currentEntry.role === "tester") {
     if (currentEntry.status === "done") return "当前 tester 已完成。";
     if (testerBlockedBy.length > 0) {
-      return `等待 developer 通过审查: ${shortList(testerBlockedBy)}。`;
+      return `等待 developer ready_for_test: ${shortList(testerBlockedBy)}。`;
     }
     return "所有 developer 已可测试，可以开始测试。";
   }

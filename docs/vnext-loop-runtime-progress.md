@@ -102,10 +102,30 @@ Result:
 - `typecheck`: pass
 - `test`: pass
 
-### Next Phase
+### Phase 5-6 In Progress
 
-Next implementation phase is Phase 5-6:
+Implemented in current pass:
 
-- Update role docs for owner/developer/reviewer/tester/integrator.
-- Wire `/kanban --role owner` and `/kanban --new` owner prompt.
-- Add benchmark templates for `prompt.md`, `injected-risks.md`, and `expected-findings.md`.
+- Added `/kanban --role owner` runtime registration:
+  - default owner key/worktree is `main`
+  - only one owner is allowed
+  - owner registration is rejected after any seat has started
+  - re-registering the existing owner refreshes `brief`
+- Added regression coverage for owner registration and active-seat rejection.
+- Updated query recommendations for owner and `ready_for_test` flow.
+- Updated role docs for owner, developer, reviewer, and tester vNext responsibilities.
+- Added `references/role-owner.md`.
+- Updated `/kanban --new` docs to prompt for owner registration only when there is no owner and no active seat.
+- Updated benchmark plan to use `benchmarks/replica-blenderhunt/` as the main benchmark. `approval-platform` remains a historical single-agent smoke baseline.
+- Applied strict subagent review fixes:
+  - owner registration now rejects any existing non-owner seat, including idle preallocated seats
+  - `developer.submit-report` enforces `related_issue` when the developer owns an open issue
+  - `integratorBlockedBy` no longer treats idle reviewer seats as required gates
+  - benchmark docs now point to replica-blenderhunt as the main benchmark
+  - README now describes the vNext `ready_for_test -> tester -> owner closeout` default flow
+
+Verification status:
+
+- `typecheck`: pass
+- `test`: pass
+- `help`: pass

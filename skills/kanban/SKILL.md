@@ -59,7 +59,7 @@ description: >
 
 1. `cwdName = basename(pwd)`
 2. 遍历 kanban，找 task 满足 `task.status ∈ { planned, in_progress }`：
-   - 遍历 `developer`/`tester`/`integrator` 条目，匹配 `.cwd` 字段等于 `cwdName`
+  - 遍历 `owner`/`developer`/`tester`/`integrator` 条目，匹配 `.cwd` 字段等于 `cwdName`
    - 若无 cwd 匹配，回退为 key 名等于 `cwdName`（兼容旧数据）
    - `reviewer` 不参与 cwd 匹配（reviewer 不绑定 worktree）
 3. 多匹配 → 取 `updated` 最新；仍多 → AskUserQuestion 列候选
@@ -113,8 +113,8 @@ bun run $SCRIPTS/<script>.ts [args...]
 
 - 所有写操作必须经过 `withKanbanLock` —— 绕过锁会导致并发竞态，两个 Agent 同时写入时其中一个的更新会静默丢失
 - `status=draft` 的任务不应自动开工 —— plan 未定稿且条目可能未注册，应先由用户提升到 `planned`
-- `/kanban --update` 只改人工领域字段（`status/description/plan/draft/repo` 及各 role 条目的 `brief`）；Agent 领域字段必须通过 `scripts/agent-write.ts` 修改
-- `reviewer` 不绑定 worktree，注册时 `cwd = null`；`developer` 需要在 worktree 中注册
+- `/kanban --update` 只改人工领域字段（`status/description/plan/draft/repo` 及各 role 条目的 `brief`）；Agent 领域字段必须通过 `scripts/agent-write.ts` 或 `scripts/action-write.ts` guarded action 修改
+- `owner` 默认在 main / 主工作区承接；`reviewer` 不绑定 worktree；`developer` 需要在 worktree 中注册
 - 真实 git worktree 清理只在主线收尾后执行:主线合并完成、完整回归通过、integration report 已写入、任务顶层 `status=done` 后,由 integrator / main 收尾者移除 clean 的 developer/tester worktree；`/kanban --clear` 不做这件事
 - `~/.kanban/.locks/` 下的文件由 `proper-lockfile` 自动管理，手动增删会导致锁库误判 stale lock
 
@@ -128,11 +128,13 @@ bun run $SCRIPTS/<script>.ts [args...]
   - Reviewer / Tester：不产生代码变更，只拉取 diff 阅读
 - 报告文件必须写入 `~/.kanban/<repo>/<uuid>/`：
   - dev report → `report-<worktree>-<NN>.md`
+  - self-review → `self-review-<worktree>-<NN>.md`
   - review → `review-<dev>-<NN>.md`
   - plan review → `plan-review-<NN>.md`
   - test report → `test-<NN>.md`
   - integration report → `integration-<NN>.md`
-- Kanban 状态更新必须经过 `agent-write.ts`（Agent 领域字段）或 `update-task.ts`（人工领域字段）
+  - owner closeout → `owner-closeout-<NN>.md`
+- Kanban 状态更新必须经过 `agent-write.ts` / `action-write.ts`（Agent 领域字段）或 `update-task.ts`（人工领域字段）
 - 仅靠对话告知"做完了"不够 —— 其他 Agent 和工作流环节只能通过文件系统读取结果
 
 任何 Agent 在报告状态变更（`waiting_review`、`done` 等）之前，必须先完成对应的文件写入和 kanban 状态更新。
@@ -156,6 +158,7 @@ bun run $SCRIPTS/<script>.ts [args...]
 
 | Role | Reference | 加载条件 |
 |------|-----------|----------|
+| `owner` | `references/role-owner.md` | 条目属于 `task.owner` |
 | `developer` | `references/role-developer.md` | 条目属于 `task.developer` |
 | `reviewer` | `references/role-reviewer.md` | 条目属于 `task.reviewer` |
 | `tester` | `references/role-test.md` | 条目属于 `task.tester` |

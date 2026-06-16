@@ -39,7 +39,7 @@ Updated: 2026-04-18 14:32
 
 ### Entries 矩阵
 
-以表格展示所有 developer / reviewer / tester / integrator 条目当前状态:
+以表格展示所有 owner / developer / reviewer / tester / integrator 条目当前状态:
 
 ```
 Entry         Role       Status          Attempt  CWD       Reports
@@ -56,22 +56,24 @@ test          tester     idle            0        -         -
 
 ```
 📍 当前身份: dev-serve (developer)
-   你刚交了 report-dev-serve-01.md,status=waiting_review
-   下一步:等 reviewer 处理。可以切到其他 worktree,或 /kanban --thread <id> 重查。
+   你刚交了 report-dev-serve-01.md,status=ready_for_test
+   下一步:等 tester 处理。可以切到其他 worktree,或 /kanban --thread <id> 重查。
 ```
 
 下一步建议的决策表:
 
 | 身份      | entry.status       | 建议                                                   |
 | --------- | ------------------ | ------------------------------------------------------ |
-| developer | idle               | 读 plan,依 brief 开工,完成后写 report 并转 waiting_review |
+| owner     | idle / working     | 计划、分配、gate decision 或 closeout                     |
+| developer | idle               | 读 plan,依 brief 开工,完成后写 report + self-review       |
 | developer | working            | 继续,未完则保存进度                                    |
 | developer | follow_issue       | 读 owner 为自己的 open issue,修复后写 related_issue report |
-| developer | waiting_review     | 等 reviewer;可切别的 worktree                          |
+| developer | ready_for_test     | 等 tester;可切别的 worktree                            |
+| developer | waiting_review     | owner 已插入 reviewer gate;等 reviewer                  |
 | developer | review_rejected    | 读最新 review-<name>-NN.md,依据修改,attempt+1         |
 | reviewer  | idle               | 检查所有 developer waiting_review 的 worktree,拉取报告 review |
 | reviewer  | working            | 继续 review                                            |
-| tester    | idle               | 所有 dev worktree 都 approved 或 done 时,拉分支跑测,写 test-NN.md |
+| tester    | idle               | 所有 dev worktree 都 ready_for_test / review_approved / done 时,拉分支跑测,写 test-NN.md |
 | integrator | idle              | 所有 dev worktree 测试通过时,合并分支,写 integration-NN.md |
 | 任意      | blocked            | 读 `blocked_on` 字段,先解阻塞                         |
 
@@ -81,7 +83,7 @@ test          tester     idle            0        -         -
 
 ### 最近报告列表
 
-按时间倒序列该任务 `~/.kanban/<repo>/<uuid>/` 下的所有 `report-*.md` / `review-*.md` / `test-*.md`,带相对时间:
+按时间倒序列该任务 `~/.kanban/<repo>/<uuid>/` 下的所有 `report-*.md` / `self-review-*.md` / `review-*.md` / `test-*.md` / `integration-*.md` / `owner-closeout-*.md`,带相对时间:
 
 ```
 最近报告:
@@ -119,8 +121,9 @@ bun run $SCRIPTS/query.ts <uuid>
 | `currentEntry` | 当前 cwd 命中的 `{ role, key, status, brief }`，未命中时为 `null` |
 | `idleStations` | 可认领的空置席位，保留给 `--role` 席位认领流程 |
 | `eligibleReviewTargets` | `developer` 中所有 `waiting_review` 条目 |
-| `testerBlockedBy` | tester 开工前仍未 `review_approved` 且未 `done` 的 developer 条目；`done` 是 `review_approved` 之后的完成态，不阻塞 tester |
-| `integratorBlockedBy` | integrator 开工前所有未 `done` 的 developer / reviewer / tester 前置条目 |
+| `readyForTestTargets` | `developer` 中所有 `ready_for_test` 或 `review_approved` 条目 |
+| `testerBlockedBy` | tester 开工前仍未 `ready_for_test / review_approved / done` 的 developer 条目 |
+| `integratorBlockedBy` | integrator 开工前所有未 `done` 的 developer / tester 前置条目;reviewer 仅在存在 `waiting_review` developer 时阻塞;owner 不阻塞 integrator |
 | `recommendedNextAction` | 一句话动作提示，只做引导，不替代角色手册 |
 
 ## 边界情况

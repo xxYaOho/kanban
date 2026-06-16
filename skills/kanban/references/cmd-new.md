@@ -157,6 +157,16 @@ fromFile 模式若识别到索引式 multi-plan,stdout JSON 包含 `subPlans: ["
 
 ## 汇报模板
 
+创建成功后,若任务没有 owner 且尚未创建任何 owner/developer/reviewer/tester/integrator 席位,必须追问是否将当前会话注册为 owner:
+
+```text
+是否将当前会话设为 owner？
+(a) 是,注册当前会话为 owner
+(b) 否,稍后再设置
+```
+
+若已存在 owner,或任一 developer/reviewer/tester/integrator 条目已经存在,不要追问;说明当前不适合自动注册 owner。
+
 正式任务(`planned`):
 
 ```text

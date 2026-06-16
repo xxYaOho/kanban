@@ -320,6 +320,109 @@ async function testActionWriteDeveloperSubmit(home: string, taskDir: string): Pr
   assert(data[uuid].developer.beta.self_review === "self-review-beta-01.md", "developer self_review should persist");
 }
 
+async function testActionWriteDeveloperSubmitRequiresRelatedIssue(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-action-related-issue-home-"));
+  try {
+    const taskDir = await seedTask(home);
+    let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].developer.beta.status = "follow_issue";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    await writeFile(join(taskDir, "issue-beta-bug.md"), [
+      "---",
+      `uuid: ${uuid}`,
+      "type: bug",
+      "status: open",
+      "owner: beta",
+      "title: Beta bug",
+      "created: 2026-05-22T10:00:00+08:00",
+      "updated: 2026-05-22T10:00:00+08:00",
+      "---",
+      "",
+      "## Summary",
+      "",
+      "Beta bug.",
+    ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "report-beta-02.md"), [
+      "---",
+      "kind: dev-report",
+      `uuid: ${uuid}`,
+      "worktree: beta",
+      "role: developer",
+      "attempt: 2",
+      "created: 2026-05-22T10:00:00+08:00",
+      "status_after: ready_for_test",
+      "summary: Fixed beta bug",
+      "self_review: self-review-beta-02.md",
+      "---",
+      "",
+      "# Dev Report",
+    ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "self-review-beta-02.md"), [
+      "---",
+      "kind: self-review",
+      `uuid: ${uuid}`,
+      "worktree: beta",
+      "role: developer",
+      "attempt: 2",
+      "created: 2026-05-22T10:00:00+08:00",
+      "source_report: report-beta-02.md",
+      "reviewer: subagent",
+      "verdict: pass",
+      "---",
+      "",
+      "# Self Review",
+    ].join("\n"), "utf-8");
+    const blocked = runScript(home, "action-write.ts", [
+      "--action",
+      "developer.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "beta",
+      "--report",
+      "report-beta-02.md",
+      "--self-review",
+      "self-review-beta-02.md",
+    ]);
+    assert(blocked.exitCode !== 0, "developer submit should require related_issue for open issue");
+    assert(blocked.stderr.includes("related_issue"), "related_issue error should be explicit");
+
+    await writeFile(join(taskDir, "report-beta-02.md"), [
+      "---",
+      "kind: dev-report",
+      `uuid: ${uuid}`,
+      "worktree: beta",
+      "role: developer",
+      "attempt: 2",
+      "created: 2026-05-22T10:00:00+08:00",
+      "status_after: ready_for_test",
+      "summary: Fixed beta bug",
+      "related_issue: issue-beta-bug.md",
+      "self_review: self-review-beta-02.md",
+      "---",
+      "",
+      "# Dev Report",
+    ].join("\n"), "utf-8");
+    const ok = runScript(home, "action-write.ts", [
+      "--action",
+      "developer.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "beta",
+      "--report",
+      "report-beta-02.md",
+      "--self-review",
+      "self-review-beta-02.md",
+    ]);
+    expectOk(ok, "developer submit issue report with related_issue");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].developer.beta.status === "ready_for_test", "issue fix submit should set ready_for_test");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
 async function testActionWriteReviewerGate(home: string, taskDir: string): Promise<void> {
   const dataBefore = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
   dataBefore[uuid].owner = {
@@ -473,6 +576,7 @@ async function testActionWriteOwnerRegister(): Promise<void> {
     data[uuid].tester = {};
     data[uuid].integrator = {};
     data[uuid].owner = {};
+    delete data[uuid].test;
     await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
     const result = runScript(home, "action-write.ts", [
       "--action",
@@ -488,6 +592,151 @@ async function testActionWriteOwnerRegister(): Promise<void> {
     const updated = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
     assert(updated[uuid].owner.main.brief === "Owner main", "owner register should persist owner");
     assert(existsSync(join(taskDir, "plan.md")), "seed task should still have plan");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+async function testActionWriteOwnerRegisterRejectsExistingSeats(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-owner-register-existing-seat-home-"));
+  try {
+    await seedTask(home);
+    const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].status = "planned";
+    data[uuid].developer = {
+      idledev: {
+        status: "idle",
+        brief: "Idle preallocated developer",
+        attempt: 0,
+        blocked_on: null,
+        worktree: "idledev",
+        cwd: "idledev",
+        reports: [],
+        review: null,
+        self_review: null,
+        review_gate_required: false,
+        error: null,
+      },
+    };
+    data[uuid].reviewer = {};
+    data[uuid].tester = {};
+    data[uuid].integrator = {};
+    data[uuid].owner = {};
+    delete data[uuid].test;
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const result = runScript(home, "action-write.ts", [
+      "--action",
+      "owner.register",
+      "--thread",
+      uuid.slice(0, 8),
+      "--key",
+      "main",
+      "--brief",
+      "Owner main",
+    ]);
+    assert(result.exitCode !== 0, "owner.register should reject existing idle seats");
+    assert(result.stderr.includes("已有席位"), "owner.register existing seat error should explain guard");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+async function testRoleOwnerRegister(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-role-owner-home-"));
+  try {
+    await seedTask(home);
+    let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].status = "planned";
+    data[uuid].developer = {};
+    data[uuid].reviewer = {};
+    data[uuid].tester = {};
+    data[uuid].integrator = {};
+    data[uuid].owner = {};
+    delete data[uuid].test;
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const result = runScript(home, "role.ts", [
+      "--role",
+      "owner",
+      "--brief",
+      "Owner main",
+      "--thread",
+      uuid.slice(0, 8),
+    ]);
+    expectOk(result, "role owner register");
+    const json = parseJson(result.stdout);
+    assert(json.role === "owner", "owner role should persist in output");
+    assert(json.stableKey === "main", "owner default stableKey should be main");
+
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].owner.main.brief === "Owner main", "owner role should persist owner.main");
+    assert(data[uuid].owner.main.cwd === "main", "owner main cwd should be main");
+
+    const refresh = runScript(home, "role.ts", [
+      "--role",
+      "owner",
+      "--brief",
+      "Owner refreshed",
+      "--thread",
+      uuid.slice(0, 8),
+    ]);
+    expectOk(refresh, "role owner refresh");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].owner.main.brief === "Owner refreshed", "owner refresh should update brief");
+
+    const secondOwner = runScript(home, "role.ts", [
+      "--role",
+      "owner",
+      "--worktree",
+      "other-main",
+      "--brief",
+      "Second owner",
+      "--thread",
+      uuid.slice(0, 8),
+    ]);
+    assert(secondOwner.exitCode !== 0, "second owner registration should fail");
+    assert(secondOwner.stderr.includes("owner 已存在"), "second owner error should mention existing owner");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+async function testRoleOwnerRejectsExistingSeats(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-role-owner-active-home-"));
+  try {
+    await seedTask(home);
+    let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].status = "planned";
+    data[uuid].developer = {
+      idledev: {
+        status: "idle",
+        brief: "Idle preallocated developer",
+        attempt: 0,
+        blocked_on: null,
+        worktree: "idledev",
+        cwd: "idledev",
+        reports: [],
+        review: null,
+        self_review: null,
+        review_gate_required: false,
+        error: null,
+      },
+    };
+    data[uuid].reviewer = {};
+    data[uuid].tester = {};
+    data[uuid].integrator = {};
+    data[uuid].owner = {};
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const result = runScript(home, "role.ts", [
+      "--role",
+      "owner",
+      "--brief",
+      "Owner too late",
+      "--thread",
+      uuid.slice(0, 8),
+    ]);
+    assert(result.exitCode !== 0, "owner registration should fail when seats already exist");
+    assert(result.stderr.includes("已有席位"), "existing seat owner error should explain guard");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -966,9 +1215,13 @@ async function main() {
     const taskDir = await seedTask(home);
     await testQueryJson(home);
     await testRoleAlias(home);
+    await testRoleOwnerRegister();
+    await testRoleOwnerRejectsExistingSeats();
     await testTesterCaseDocumentWrite(home);
     await testActionWriteOwnerRegister();
+    await testActionWriteOwnerRegisterRejectsExistingSeats();
     await testActionWriteDeveloperSubmit(home, taskDir);
+    await testActionWriteDeveloperSubmitRequiresRelatedIssue();
     await testActionWriteReviewerGate(home, taskDir);
     await testActionWriteOwnerCloseoutGuard();
     await testIssueLifecycle(home, taskDir);

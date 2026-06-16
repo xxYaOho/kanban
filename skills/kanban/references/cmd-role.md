@@ -6,13 +6,14 @@
 
 ```bash
 /kanban --role developer "负责前端模块的 RBAC 实现"
+/kanban --role owner "主线协调、计划和收尾"
 /kanban --role reviewer
 /kanban --role tester "本轮只跑 boundary 和 security"
 /kanban --role integrator
 /kanban --thread <id> --role reviewer --standby
 ```
 
-- `<role>` 合法值:`developer` / `reviewer` / `tester` / `integrator`。
+- `<role>` 合法值:`owner` / `developer` / `reviewer` / `tester` / `integrator`。
 - `test` 是 legacy alias;脚本兼容输入,新写入统一为 `tester`。
 - `<context>` 可选,作为 `<role>.<name>.brief`。
 - `--standby` 仅表示注册后进入前台待命;待命规则见 `cmd-standby.md`。
@@ -69,7 +70,8 @@ Stable key 选择:
 
 | role | 默认职责 |
 |------|----------|
-| developer | 完成 plan 中分配的实现与必要测试 |
+| owner | 主线协调、计划和收尾 |
+| developer | 完成 plan 中分配的实现、自测和 self-review |
 | reviewer | 审查 developer 交付,确认 plan 对齐、代码质量和测试风险 |
 | tester | 执行集成/边界/回归验证 |
 | integrator | 合并通过验证的分支并产出 integration report |
@@ -80,12 +82,13 @@ Stable key 选择:
 
 | role | 初始字段 |
 |------|----------|
-| developer | `status: idle`, `brief`, `attempt: 0`, `blocked_on: null`, `worktree`, `cwd`, `reports: []`, `review: null`, `error: null` |
+| owner | `status: idle`, `brief`, `attempt: 0`, `worktree/cwd`, `decisions: []`, `closeout: ""`, `error: null` |
+| developer | `status: idle`, `brief`, `attempt: 0`, `blocked_on: null`, `worktree`, `cwd`, `reports: []`, `review: null`, `self_review: null`, `review_gate_required: false`, `error: null` |
 | reviewer | `status: idle`, `brief`, `attempt: 0`, `pass: []`, `report: ""`, `error: null` |
 | tester | `status: idle`, `brief`, `attempt: 0`, `worktree/cwd`, `case_document: ""`, `pass: []`, `fail: []`, `report: ""`, `error: null` |
 | integrator | `status: idle`, `brief`, `attempt: 0`, `worktree/cwd`, `merged: []`, `conflicts: []`, `report: ""`, `error: null` |
 
-Reviewer 不绑定真实 worktree;`role.ts` 不写 `cwd/worktree`,后续用 entry key / `stableKey` 识别。Tester 和 integrator 在主 worktree 注册时 `worktree/cwd` 为 `null`。
+Owner 默认 key 为 `main`,同一任务只能存在一个 owner。Reviewer 不绑定真实 worktree;`role.ts` 不写 `cwd/worktree`,后续用 entry key / `stableKey` 识别。Tester 和 integrator 在主 worktree 注册时 `worktree/cwd` 为 `null`。
 
 若任务仍为 `draft`,注册后不自动提升到 `planned`。
 
@@ -114,12 +117,14 @@ developer 注册或认领后,脚本会按状态决定是否自动开工:
 | `currentEntry` | 当前 cwd 匹配到的 role/key/status/brief;先按 `cwd`,再按 key 回退 |
 | `idleStations` | 每个 role 下 `status=idle && attempt=0` 的条目;developer 项可带 `blockedOn` |
 | `eligibleReviewTargets` | 所有 `developer.status == waiting_review` 的条目 |
-| `testerBlockedBy` | 所有 `developer.status != review_approved && status != done` 的条目 |
-| `integratorBlockedBy` | 所有 `role != integrator && status != done` 的条目;`blocked` 仍阻塞 integrator |
+| `readyForTestTargets` | 所有 `developer.status == ready_for_test 或 review_approved` 的条目 |
+| `testerBlockedBy` | 所有尚未 `ready_for_test / review_approved / done` 的 developer 条目 |
+| `integratorBlockedBy` | 所有 developer / tester 中 `status != done` 的条目;reviewer 仅在存在 `waiting_review` developer 时阻塞;owner 不阻塞 integrator |
 
 承接规则:
 
 - reviewer:若 `eligibleReviewTargets` 非空,按 `role-reviewer.md` 审查目标;否则等待。
+- owner:按 `role-owner.md` 做计划协调、gate decision 或 closeout。
 - tester:若 `testerBlockedBy` 为空,按 `role-test.md` 测试;否则等待列出的 developer。
 - integrator:若 `integratorBlockedBy` 为空,按 `role-integrator.md` 合并;否则等待列出的条目。
 

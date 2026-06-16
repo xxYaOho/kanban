@@ -17,7 +17,7 @@ import {
   type Task,
 } from "./kanban-io";
 import { fromKanbanRel, waveDir } from "./paths";
-import { parseFrontmatter } from "./issue-io";
+import { hasRelatedIssueReference, listIssues, parseFrontmatter } from "./issue-io";
 
 type Action =
   | "owner.register"
@@ -148,11 +148,9 @@ function assertFm(fm: Record<string, string>, key: string, expected: string): vo
   }
 }
 
-function hasActiveEntries(task: Task): boolean {
+function hasAnyNonOwnerSeat(task: Task): boolean {
   for (const role of ["developer", "reviewer", "tester", "integrator"] as const) {
-    for (const entry of Object.values(task[role] ?? {})) {
-      if (entry.status !== "idle" || entry.attempt > 0) return true;
-    }
+    if (Object.keys(task[role] ?? {}).length > 0) return true;
   }
   return false;
 }
@@ -177,7 +175,7 @@ function activeIntegratorEntries(task: Task): string[] {
 function ownerRegister(task: Task, args: Args): string[] {
   const key = args.key ?? "main";
   if (Object.keys(task.owner ?? {}).length > 0) throw new Error("owner 已存在");
-  if (hasActiveEntries(task)) throw new Error("已有席位进入工作状态,不能注册 owner");
+  if (hasAnyNonOwnerSeat(task)) throw new Error("已有席位,不能注册 owner");
   task.owner[key] = {
     status: "idle",
     brief: args.brief ?? "主线协调、计划和收尾",
@@ -234,6 +232,18 @@ function submitDeveloperReport(task: Task, uuid: string, args: Args): string[] {
   assertFm(selfReviewFm, "source_report", reportFile);
   if (reportFm.attempt !== selfReviewFm.attempt) {
     throw new Error(`report/self-review attempt 不一致: ${reportFm.attempt} vs ${selfReviewFm.attempt}`);
+  }
+  const openIssues = listIssues(task.repo, uuid, { status: "open" })
+    .filter((issue) => issue.owner === args.key);
+  if (openIssues.length > 0) {
+    const reportPath = artifactPath(task, uuid, reportFile);
+    const reportContent = readFileSync(reportPath, "utf-8");
+    if (!hasRelatedIssueReference(reportContent, openIssues.map((issue) => issue.file))) {
+      throw new Error(
+        `developer.${args.key} 有 open issue,dev report frontmatter 必须包含 related_issue。` +
+          ` 需引用: ${openIssues.map((issue) => issue.file).join(", ")}`,
+      );
+    }
   }
   dev.reports = [...(dev.reports ?? []), reportFile];
   dev.self_review = selfReviewFile;

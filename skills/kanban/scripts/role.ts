@@ -4,7 +4,7 @@
  *
  * 参数:
  *   --worktree <name>          worktree 名(developer 必填，其他 role 可选)
- *   --role <role>              developer | reviewer | tester | integrator
+ *   --role <role>              owner | developer | reviewer | tester | integrator
  *   --brief <brief>            职责描述(非空)
  *   --thread <uuid>            目标任务 UUID
  *   --claim-from <presetName>  可选:认领预分配席位(仅 developer)
@@ -48,11 +48,18 @@ function parseArgs(argv: string[]): Args {
   if (a.role === "developer" && !a.worktree) {
     throw new Error("developer 需要在 worktree 中注册，缺参: --worktree");
   }
-  if (!a.worktree) a.worktree = "main";
   if (!a.role) throw new Error("缺参: --role");
+  if (!a.worktree) a.worktree = a.role === "owner" ? "main" : "main";
   if (!a.brief || !a.brief.trim()) throw new Error("--brief 不能为空");
   if (!a.uuid) throw new Error("缺参: --thread");
   return a as Args;
+}
+
+function hasAnyNonOwnerSeat(task: Kanban[string]): boolean {
+  for (const role of ["developer", "reviewer", "tester", "integrator"] as const) {
+    if (Object.keys(task[role] ?? {}).length > 0) return true;
+  }
+  return false;
 }
 
 async function main() {
@@ -93,7 +100,9 @@ async function main() {
     }
 
     // ── 查找已有条目 ──
-    if (args.role === "developer") {
+    if (args.role === "owner") {
+      existingKey = task.owner?.[args.worktree] ? args.worktree : undefined;
+    } else if (args.role === "developer") {
       existingKey = Object.keys(task.developer).find(
         (k) => task.developer[k].cwd === args.worktree,
       ) ?? (task.developer[args.worktree] ? args.worktree : undefined);
@@ -172,6 +181,8 @@ async function main() {
             }
           }
         }
+      } else if (args.role === "owner") {
+        task.owner[existingKey].brief = args.brief;
       } else if (args.role === "reviewer") {
         task.reviewer[existingKey].brief = args.brief;
       } else if (args.role === "tester") {
@@ -181,7 +192,24 @@ async function main() {
       }
     } else {
       // ── 全新注册 ──
-      if (args.role === "developer") {
+      if (args.role === "owner") {
+        if (Object.keys(task.owner ?? {}).length > 0) {
+          throw new Error("owner 已存在");
+        }
+        if (hasAnyNonOwnerSeat(task)) {
+          throw new Error("已有席位,不能注册 owner");
+        }
+        task.owner[args.worktree] = {
+          status: "idle",
+          brief: args.brief,
+          attempt: 0,
+          worktree: args.worktree === "main" ? "main" : args.worktree,
+          cwd: args.worktree === "main" ? "main" : args.worktree,
+          decisions: [],
+          closeout: "",
+          error: null,
+        };
+      } else if (args.role === "developer") {
         task.developer[args.worktree] = {
           status: "idle",
           brief: args.brief,

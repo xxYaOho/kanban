@@ -4,7 +4,7 @@
 
 ## 职责
 
-在所有 developer 条目都到达 `review_approved` 或 `done` 后,在 tester worktree 合并相关 developer 分支，进行**集成测试 / 端到端验证**,写 **test cases** 与 **test report**,决定任务是否可以推到 `done`。`done` 是 tester pass 后的完成态,不再阻塞后续 tester / integrator 判断。若发现 bug，tester 必须先定位并创建 issue，不靠口头判断把 developer 直接打回。
+在所有 developer 条目都到达 `ready_for_test` / `review_approved` / `done` 后,在 tester worktree 合并相关 developer 分支，进行**集成测试 / 端到端验证**,写 **test cases** 与 **test report**,决定 developer 是否可进入 `done`。`review_approved` 是 v1 兼容状态,在 tester 前置判断中等价于 `ready_for_test`。若发现 bug，tester 必须先定位并创建 issue，不靠口头判断把 developer 直接打回。
 
 ## 前置条件
 
@@ -12,16 +12,16 @@
 enter(cwd = <tester-worktree>)
 │
 ├─ 检查 task 状态
-│   ├─ 所有 developer 条目 status ∈ { "review_approved", "done" }? 否 → 等待,提示原因
-│   ├─ 所有 reviewer 条目无 pending 工作? 是 → 继续
+│   ├─ 所有 developer 条目 status ∈ { "ready_for_test", "review_approved", "done" }? 否 → 等待,提示原因
+│   ├─ 无 developer 处于 waiting_review? 是 → 继续
 │   └─ 任务顶层 status ∈ { in_progress, planned }? 是 → 继续
 │
 └─ 进入测试阶段
 ```
 
 如任一前置不满足,不要开工。清楚地汇报当前阻塞项,列出:
-- 哪些 developer 条目还不是 approved / done(及其当前 status)
-- 哪些 reviewer 还在干活
+- 哪些 developer 条目还不是 ready_for_test / review_approved / done(及其当前 status)
+- 哪些 developer 仍在 waiting_review
 
 ## 测试过程
 
@@ -72,7 +72,7 @@ bun run $SCRIPTS/issue.ts open \
 
 ## 回测 open issue
 
-回测前必须读 open issue，并检查 owner developer 是否已经重新回到 `review_approved`。未满足时保持 `waiting`，不要执行回测。
+回测前必须读 open issue，并检查 owner developer 是否已经重新回到 `ready_for_test` 或 `review_approved`。未满足时保持 `waiting`，不要执行回测。
 
 回测步骤：
 1. 在 tester worktree 合并 owner developer 的最新分支。
@@ -151,7 +151,7 @@ bun run $SCRIPTS/issue.ts open \
 
 在对话中汇报 tester verdict 之前，必须完成 `references/shared-delivery-contract.md`，并额外满足 tester 的验证要求:
 
-1. **验证前置条件**：所有 developer worktree 处于 `review_approved` 或 `done` 状态
+1. **验证前置条件**：所有 developer worktree 处于 `ready_for_test`、`review_approved` 或 `done` 状态
 2. **维护测试用例文档**：写入或更新 `test-cases-<NN>.md`,并在 `tester.<name>.case_document` 记录
 3. **运行集成测试**：merge / rebase 各 dev 分支，按测试用例运行测试套件和手工验证
 4. **失败时创建 issue**：必须写清 reproduction、expected / actual、diagnosis、owner、blocker、retest plan
@@ -167,4 +167,4 @@ bun run $SCRIPTS/issue.ts open \
 - ❌ 没有测试用例文档或未记录 `case_document` 就给最终 pass
 - ❌ 只写"测试失败"但没有定位、owner 和回测标准
 - ❌ 跳过 `withKanbanLock` 改 kanban.json
-- ❌ 任务顶层 `status = done` 的前提除了本次 tester pass 还**必须**所有 developer 条目状态为 `review_approved` 或 `done`(跳过 review 直接 done 违反协议)
+- ❌ 任务顶层 `status = done` 的前提除了本次 tester pass 还**必须**所有 developer 条目状态为 `ready_for_test`、`review_approved` 或 `done`

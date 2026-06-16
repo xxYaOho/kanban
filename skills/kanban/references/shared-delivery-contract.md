@@ -5,7 +5,7 @@
 ## 固定顺序
 
 1. 写报告文件到 `~/.kanban/<repo>/<uuid>/`。
-2. 通过 `agent-write.ts` 更新对应 role 条目的 Agent 字段。
+2. 通过 `agent-write.ts` 或对应 `action-write.ts` guarded action 更新 role 条目的 Agent 字段。
 3. 必要时再用 `update-task.ts` 更新任务级状态。
 4. 向 Human 简短汇报文件名、状态变化和下一步。
 
@@ -15,7 +15,8 @@
 
 | Role | 报告类型 | 文件名 |
 |------|----------|--------|
-| developer | `dev-report` | `report-<worktree>-<NN>.md` |
+| owner | `owner-closeout` | `owner-closeout-<NN>.md` |
+| developer | `dev-report` / `self-review` | `report-<worktree>-<NN>.md` / `self-review-<worktree>-<NN>.md` |
 | reviewer | `review` / `plan-review` | `review-<dev>-<NN>.md` / `plan-review-<NN>.md` |
 | tester | `test-cases` / `test-report` | `test-cases-<NN>.md` / `test-<NN>.md` |
 | integrator | `integration-report` | `integration-<NN>.md` |
@@ -37,6 +38,6 @@ Status: <before> → <after>
 
 ## 禁止
 
-- 未写报告文件就汇报 `waiting_review`、`review_approved`、`done` 或 tester verdict。
-- 绕过 `agent-write.ts` / `update-task.ts` 直接改 `kanban.json`。
+- 未写报告文件就汇报 `ready_for_test`、`waiting_review`、`review_approved`、`done` 或 tester verdict。
+- 绕过 `agent-write.ts` / `action-write.ts` / `update-task.ts` 直接改 `kanban.json`。
 - 跨 role 或跨 worktree 写别人的正式报告。

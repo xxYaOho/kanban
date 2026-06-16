@@ -69,7 +69,7 @@ owner -> developer loop -> reviewer gate -> tester -> integrator -> owner final 
 无效条件:
 
 - 任务已有 owner。
-- 任务已有任何席位进入工作状态。
+- 任务已有 owner,或已经创建任何 developer / reviewer / tester / integrator 席位。
 - 当前会话无法形成稳定 owner key。
 
 Owner entry schema:
@@ -381,7 +381,7 @@ actor + action + target -> allowed writes
 
 | Action | Actor | Preconditions | Required artifact | Writes |
 |--------|-------|---------------|-------------------|--------|
-| `owner.register` | owner | task has no owner and no active entries | none | `owner.<key>` |
+| `owner.register` | owner | task has no owner and no developer/reviewer/tester/integrator seats | none | `owner.<key>` |
 | `owner.request-reviewer-gate` | owner | developer exists | decision entry | append owner decision, set `review_gate_required=true`; if developer is `ready_for_test`, also set `status=waiting_review` |
 | `developer.submit-report` | developer | report and self-review exist; frontmatter attempt matches | `report-*` + `self-review-*` | `reports += <file>`, `self_review=<file>`, `status=waiting_review` if `review_gate_required`, else `ready_for_test` |
 | `reviewer.submit-gate-review` | reviewer | developer is `waiting_review`, review file exists | `review-*` | `developer.review=<file>`, `review_gate_required=false`, `status=ready_for_test` or `review_rejected` |
@@ -415,7 +415,7 @@ v1 兼容规则:
 
 ## Benchmark
 
-benchmark 不属于 skill 运行时。它放在 repo 根部的 `benchmarks/approval-platform/`,用于需要时验证 vNext 设计。
+benchmark 不属于 skill 运行时。主 benchmark 放在 repo 根部的 `benchmarks/replica-blenderhunt/`,用于需要时验证 vNext 设计。`benchmarks/approval-platform/` 只保留历史 smoke baseline。
 
 benchmark 不需要每次改 skill 都运行。它用于高风险协议调整,例如:
 

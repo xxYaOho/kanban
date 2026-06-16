@@ -238,7 +238,7 @@ ${diagnosis.trim()}
 ## Owner
 
 - Developer: \`${owner}\`
-- Required next state: \`${owner}\` 修复后提交 dev report,并重新进入 reviewer 审查。
+- Required next state: \`${owner}\` 修复后提交 dev report + self-review,并回到 ready_for_test。若 owner 已插入 reviewer gate,则进入 waiting_review。
 - Dev report must include: \`related_issue: issue-${slugify(title)}-${issueUuid.slice(0, 8)}.md\`
 
 ## Retest Plan
