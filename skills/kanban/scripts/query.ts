@@ -108,7 +108,7 @@ function listReports(repo: string, uuid: string): string[] {
   const prefixes = roleKeys()
     .map((role) => reportFilePrefixes[role])
     .join("|");
-  const reportPattern = new RegExp(`^(${prefixes})-.*\\.md$`);
+  const reportPattern = new RegExp(`^(${prefixes})-.*\\.md$|^self-review-.*\\.md$`);
   return readdirSync(dir)
     .filter((f) => reportPattern.test(f))
     .map((f) => ({ name: f, mtime: statSync(`${dir}/${f}`).mtimeMs }))
@@ -209,9 +209,19 @@ function buildEligibleReviewTargets(task: Task): EntrySummary[] {
     .map(([key, entry]) => summarizeEntry("developer", key, entry));
 }
 
+function isDeveloperReadyForTest(status: string): boolean {
+  return status === "ready_for_test" || status === "review_approved" || status === "done";
+}
+
+function buildReadyForTestTargets(task: Task): EntrySummary[] {
+  return Object.entries(task.developer ?? {})
+    .filter(([, entry]) => entry.status === "ready_for_test" || entry.status === "review_approved")
+    .map(([key, entry]) => summarizeEntry("developer", key, entry));
+}
+
 function buildTesterBlockedBy(task: Task): EntrySummary[] {
   return Object.entries(task.developer ?? {})
-    .filter(([, entry]) => entry.status !== "review_approved" && entry.status !== "done")
+    .filter(([, entry]) => !isDeveloperReadyForTest(entry.status))
     .map(([key, entry]) => summarizeEntry("developer", key, entry));
 }
 
@@ -250,6 +260,8 @@ function buildRecommendedNextAction(
         return "继续实现，完成后先写 dev report 再转 waiting_review。";
       case "follow_issue":
         return "读取 owner 为自己的 open issue，修复后提交带 related_issue 的 dev report。";
+      case "ready_for_test":
+        return "等待 tester 接力。";
       case "waiting_review":
         return "等待 reviewer 审查，可切换其他 worktree。";
       case "under_review":
@@ -279,7 +291,7 @@ function buildRecommendedNextAction(
     if (testerBlockedBy.length > 0) {
       return `等待 developer 通过审查: ${shortList(testerBlockedBy)}。`;
     }
-    return "所有 developer 已通过审查，可以开始测试。";
+    return "所有 developer 已可测试，可以开始测试。";
   }
 
   if (currentEntry.role === "integrator") {
@@ -332,6 +344,7 @@ async function main() {
   const hlKey = current?.key ?? null;
   const hlRole = current?.role ?? null;
   const eligibleReviewTargets = buildEligibleReviewTargets(task);
+  const readyForTestTargets = buildReadyForTestTargets(task);
   const testerBlockedBy = buildTesterBlockedBy(task);
   const integratorBlockedBy = buildIntegratorBlockedBy(task);
   const recommendedNextAction = buildRecommendedNextAction(
@@ -401,6 +414,7 @@ async function main() {
     currentEntry: current,
     idleStations,
     eligibleReviewTargets,
+    readyForTestTargets,
     testerBlockedBy,
     integratorBlockedBy,
     recommendedNextAction,

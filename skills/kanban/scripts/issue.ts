@@ -298,9 +298,13 @@ async function closeIssue(args: Args, status: Exclude<IssueStatus, "open">) {
     assertTesterEntry(task, args.tester!);
 
     const issue = resolveIssue(task.repo, uuid, args.issue!);
-    if (status === "done" && task.developer?.[issue.owner]?.status !== "review_approved") {
+    if (
+      status === "done" &&
+      task.developer?.[issue.owner]?.status !== "ready_for_test" &&
+      task.developer?.[issue.owner]?.status !== "review_approved"
+    ) {
       const actual = task.developer?.[issue.owner]?.status ?? "not_developer";
-      throw new Error(`issue done 前 owner developer 必须是 review_approved。当前 ${issue.owner}:${actual}`);
+      throw new Error(`issue done 前 owner developer 必须是 ready_for_test 或 review_approved。当前 ${issue.owner}:${actual}`);
     }
 
     const archiveDir = issueArchiveDir(task.repo, uuid);

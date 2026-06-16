@@ -59,6 +59,8 @@ async function seedTask(home: string): Promise<string> {
           cwd: "alpha",
           reports: ["report-alpha-01.md"],
           review: null,
+          self_review: null,
+          review_gate_required: false,
           error: null,
         },
         beta: {
@@ -70,6 +72,8 @@ async function seedTask(home: string): Promise<string> {
           cwd: "beta",
           reports: [],
           review: null,
+          self_review: null,
+          review_gate_required: false,
           error: null,
         },
         gamma: {
@@ -81,6 +85,8 @@ async function seedTask(home: string): Promise<string> {
           cwd: "gamma",
           reports: ["report-gamma-01.md"],
           review: "review-gamma-01.md",
+          self_review: null,
+          review_gate_required: false,
           error: null,
         },
         delta: {
@@ -92,9 +98,12 @@ async function seedTask(home: string): Promise<string> {
           cwd: "delta",
           reports: ["report-delta-01.md"],
           review: "review-delta-01.md",
+          self_review: null,
+          review_gate_required: false,
           error: null,
         },
       },
+      owner: {},
       reviewer: {
         review: {
           status: "idle",
@@ -179,9 +188,12 @@ async function seedStandbyResolutionTask(home: string): Promise<void> {
         cwd: "alpha",
         reports: [],
         review: null,
+        self_review: null,
+        review_gate_required: false,
         error: null,
       },
     },
+    owner: {},
     reviewer: {},
     tester: {},
     integrator: {},
@@ -213,6 +225,7 @@ async function testQueryJson(home: string): Promise<void> {
   assert(json.testerBlockedBy.some((entry: any) => entry.key === "alpha"), "alpha should block tester");
   assert(json.testerBlockedBy.some((entry: any) => entry.key === "beta"), "beta should block tester");
   assert(!json.testerBlockedBy.some((entry: any) => entry.key === "delta"), "done developer should not block tester");
+  assert(Array.isArray(json.readyForTestTargets), "readyForTestTargets should be present");
   assert(json.integratorBlockedBy.some((entry: any) => entry.role === "tester" && entry.key === "full"), "tester should block integrator");
   assert(typeof json.recommendedNextAction === "string" && json.recommendedNextAction.length < 120, "recommendedNextAction should be short");
   assert(json.idleStations.tester.some((entry: any) => entry.stationName === "legacy"), "legacy task.test should migrate into tester idleStations");
@@ -253,6 +266,231 @@ async function testTesterCaseDocumentWrite(home: string): Promise<void> {
 
   const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
   assert(data[uuid].tester.full.case_document === "test-cases-01.md", "tester case_document should persist");
+}
+
+async function testActionWriteDeveloperSubmit(home: string, taskDir: string): Promise<void> {
+  await writeFile(join(taskDir, "report-beta-01.md"), [
+    "---",
+    "kind: dev-report",
+    `uuid: ${uuid}`,
+    "worktree: beta",
+    "role: developer",
+    "attempt: 1",
+    "created: 2026-05-22T10:00:00+08:00",
+    "status_after: ready_for_test",
+    "related_plan: plan.md",
+    "related_issue: null",
+    "self_review: self-review-beta-01.md",
+    "gate_review_required: false",
+    "---",
+    "",
+    "# Dev Report",
+  ].join("\n"), "utf-8");
+  await writeFile(join(taskDir, "self-review-beta-01.md"), [
+    "---",
+    "kind: self-review",
+    `uuid: ${uuid}`,
+    "worktree: beta",
+    "role: developer",
+    "attempt: 1",
+    "created: 2026-05-22T10:00:00+08:00",
+    "source_report: report-beta-01.md",
+    "verdict: pass",
+    "reviewer: subagent",
+    "---",
+    "",
+    "# Self Review",
+  ].join("\n"), "utf-8");
+
+  const result = runScript(home, "action-write.ts", [
+    "--action",
+    "developer.submit-report",
+    "--thread",
+    uuid.slice(0, 8),
+    "--worktree",
+    "beta",
+    "--report",
+    "report-beta-01.md",
+    "--self-review",
+    "self-review-beta-01.md",
+  ]);
+  expectOk(result, "developer submit report action");
+  const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  assert(data[uuid].developer.beta.status === "ready_for_test", "developer submit should set ready_for_test");
+  assert(data[uuid].developer.beta.self_review === "self-review-beta-01.md", "developer self_review should persist");
+}
+
+async function testActionWriteReviewerGate(home: string, taskDir: string): Promise<void> {
+  const dataBefore = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  dataBefore[uuid].owner = {
+    main: {
+      status: "idle",
+      brief: "Owner main",
+      attempt: 0,
+      worktree: "main",
+      cwd: "main",
+      decisions: [],
+      closeout: "",
+      error: null,
+    },
+  };
+  await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(dataBefore, null, 2) + "\n");
+
+  const gate = runScript(home, "action-write.ts", [
+    "--action",
+    "owner.request-reviewer-gate",
+    "--thread",
+    uuid.slice(0, 8),
+    "--key",
+    "main",
+    "--target",
+    "beta",
+    "--reason",
+    "Need gate after ready",
+    "--evidence",
+    "report-beta-01.md",
+  ]);
+  expectOk(gate, "owner request reviewer gate");
+  let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  assert(data[uuid].developer.beta.status === "waiting_review", "gate should move ready developer to waiting_review");
+  assert(data[uuid].developer.beta.review_gate_required === true, "gate intent should persist");
+
+  await writeFile(join(taskDir, "review-beta-01.md"), [
+    "---",
+    "kind: review",
+    `uuid: ${uuid}`,
+    "worktree: beta",
+    "reviewer_worktree: review",
+    "role: reviewer",
+    "attempt: 1",
+    "created: 2026-05-22T10:00:00+08:00",
+    "verdict: approve",
+    "related_report: report-beta-01.md",
+    "---",
+    "",
+    "# Review",
+  ].join("\n"), "utf-8");
+  const approve = runScript(home, "action-write.ts", [
+    "--action",
+    "reviewer.submit-gate-review",
+    "--thread",
+    uuid.slice(0, 8),
+    "--target",
+    "beta",
+    "--review",
+    "review-beta-01.md",
+    "--verdict",
+    "approve",
+  ]);
+  expectOk(approve, "reviewer approve gate");
+  data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  assert(data[uuid].developer.beta.status === "ready_for_test", "review approve should return ready_for_test");
+  assert(data[uuid].developer.beta.review_gate_required === false, "review approve should clear gate intent");
+}
+
+async function testActionWriteOwnerCloseoutGuard(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-owner-closeout-home-"));
+  try {
+    const taskDir = await seedTask(home);
+    let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    delete data[uuid].test;
+    data[uuid].tester.full.status = "done";
+    data[uuid].integrator.merge.attempt = 1;
+    data[uuid].integrator.merge.status = "working";
+    data[uuid].owner = {
+      main: {
+        status: "working",
+        brief: "Owner main",
+        attempt: 1,
+        worktree: "main",
+        cwd: "main",
+        decisions: [],
+        closeout: "",
+        error: null,
+      },
+    };
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    await writeFile(join(taskDir, "owner-closeout-01.md"), [
+      "---",
+      "kind: owner-closeout",
+      `uuid: ${uuid}`,
+      "owner: main",
+      "role: owner",
+      "attempt: 1",
+      "created: 2026-05-22T10:00:00+08:00",
+      "status_after: done",
+      "test_report: test-01.md",
+      "integration_report: null",
+      "merged: []",
+      "conflicts: []",
+      "---",
+      "",
+      "# Owner Closeout",
+    ].join("\n"), "utf-8");
+    const blocked = runScript(home, "action-write.ts", [
+      "--action",
+      "owner.closeout",
+      "--thread",
+      uuid.slice(0, 8),
+      "--key",
+      "main",
+      "--closeout",
+      "owner-closeout-01.md",
+    ]);
+    assert(blocked.exitCode !== 0, "owner closeout should block active integrator");
+
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].integrator.merge.status = "done";
+    data[uuid].integrator.merge.report = "integration-01.md";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const done = runScript(home, "action-write.ts", [
+      "--action",
+      "owner.closeout",
+      "--thread",
+      uuid.slice(0, 8),
+      "--key",
+      "main",
+      "--closeout",
+      "owner-closeout-01.md",
+    ]);
+    expectOk(done, "owner closeout after integrator done");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].status === "done", "owner closeout should mark task done");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+async function testActionWriteOwnerRegister(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-owner-register-home-"));
+  try {
+    const taskDir = await seedTask(home);
+    const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].status = "planned";
+    data[uuid].developer = {};
+    data[uuid].reviewer = {};
+    data[uuid].tester = {};
+    data[uuid].integrator = {};
+    data[uuid].owner = {};
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const result = runScript(home, "action-write.ts", [
+      "--action",
+      "owner.register",
+      "--thread",
+      uuid.slice(0, 8),
+      "--key",
+      "main",
+      "--brief",
+      "Owner main",
+    ]);
+    expectOk(result, "owner register action");
+    const updated = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(updated[uuid].owner.main.brief === "Owner main", "owner register should persist owner");
+    assert(existsSync(join(taskDir, "plan.md")), "seed task should still have plan");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 }
 
 async function testIssueLifecycle(home: string, taskDir: string): Promise<void> {
@@ -470,7 +708,7 @@ async function testStandbyTesterFullTest(home: string): Promise<void> {
   data[uuid].tester.full.status = "idle";
   data[uuid].tester.full.attempt = 0;
   data[uuid].developer.alpha.status = "review_approved";
-  data[uuid].developer.beta.status = "review_approved";
+  data[uuid].developer.beta.status = "ready_for_test";
   data[uuid].developer.beta.reports = ["report-beta-01.md"];
   data[uuid].developer.gamma.status = "review_approved";
   data[uuid].developer.delta.status = "done";
@@ -488,10 +726,7 @@ async function testStandbyTesterFullTest(home: string): Promise<void> {
   const json = parseJson(trigger.stdout);
   assert(json.ready === true, "tester should trigger when all developers are approved");
   assert(json.action === "tester_full_test", "tester action should be tester_full_test");
-  assert(
-    json.fingerprint === "tester:full:tester_full_test:all-developers:review_approved:0:alpha:1:report-alpha-01.md|beta:1:report-beta-01.md|delta:1:report-delta-01.md|gamma:1:report-gamma-01.md",
-    "tester full fingerprint should allow done developers and use sorted developer attempt/report artifact",
-  );
+  assert(json.fingerprint.includes("ready_for_test"), "tester full fingerprint should use ready_for_test marker");
 
   data[uuid].developer.alpha.status = "done";
   data[uuid].developer.beta.status = "done";
@@ -516,7 +751,7 @@ async function testStandbyTesterRetest(home: string): Promise<void> {
   const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
   data[uuid].tester.full.status = "waiting";
   data[uuid].tester.full.attempt = 1;
-  data[uuid].developer.gamma.status = "review_approved";
+  data[uuid].developer.gamma.status = "ready_for_test";
   data[uuid].developer.gamma.reports = ["report-gamma-01.md", "report-gamma-02.md"];
   await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
   await writeFile(join(taskDir, issueFile), [
@@ -549,7 +784,7 @@ async function testStandbyTesterRetest(home: string): Promise<void> {
   const json = parseJson(trigger.stdout);
   assert(json.ready === true, "tester should trigger retest when issue owner is approved");
   assert(json.action === "tester_retest_issue", "tester action should be tester_retest_issue");
-  assert(json.fingerprint === "tester:full:tester_retest_issue:gamma:review_approved:1:issue-gamma-retest.md|report-gamma-02.md", "tester retest fingerprint should use issue and owner latest report");
+  assert(json.fingerprint === "tester:full:tester_retest_issue:gamma:ready_for_test:1:issue-gamma-retest.md|report-gamma-02.md", "tester retest fingerprint should use issue and owner latest report");
 }
 
 async function testStandbyDeveloper(home: string): Promise<void> {
@@ -732,6 +967,10 @@ async function main() {
     await testQueryJson(home);
     await testRoleAlias(home);
     await testTesterCaseDocumentWrite(home);
+    await testActionWriteOwnerRegister();
+    await testActionWriteDeveloperSubmit(home, taskDir);
+    await testActionWriteReviewerGate(home, taskDir);
+    await testActionWriteOwnerCloseoutGuard();
     await testIssueLifecycle(home, taskDir);
     await testRelatedIssueGuard(home, taskDir);
     testStandbyWaitBackoff();

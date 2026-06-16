@@ -114,6 +114,14 @@ function buildFullTestArtifact(task: Task): string {
     .join("|");
 }
 
+function isDeveloperReadyForTest(status: string): boolean {
+  return status === "ready_for_test" || status === "review_approved" || status === "done";
+}
+
+function isDeveloperNewlyReadyForTest(status: string): boolean {
+  return status === "ready_for_test" || status === "review_approved";
+}
+
 function reviewerTrigger(args: StandbyTriggerArgs, task: Task): StandbyTriggerResult {
   const target = developerEntries(task)
     .filter(([, entry]) => entry.status === "waiting_review")
@@ -140,7 +148,7 @@ function testerTrigger(args: StandbyTriggerArgs, uuid: string, task: Task): Stan
 
   if (tester.status === "waiting") {
     const issue = openIssuesWithOwnerStatus(task, uuid)
-      .filter((item) => item.ownerStatus === "review_approved")
+      .filter((item) => item.ownerStatus === "ready_for_test" || item.ownerStatus === "review_approved")
       .sort((a, b) => a.file.localeCompare(b.file))[0];
     if (issue) {
       const ownerReport = latestDeveloperReport(task.developer?.[issue.owner]);
@@ -152,28 +160,28 @@ function testerTrigger(args: StandbyTriggerArgs, uuid: string, task: Task): Stan
         action: "tester_retest_issue",
         targets: [issue.file],
         fingerprint: fp,
-        reason: `open issue ${issue.file} owner ${issue.owner} is review_approved`,
+        reason: `open issue ${issue.file} owner ${issue.owner} is ready for test`,
       });
     }
-    return { ready: false, reason: "tester waiting; no open issue owner is review_approved" };
+    return { ready: false, reason: "tester waiting; no open issue owner is ready for test" };
   }
 
   const developers = developerEntries(task);
   const allReady = developers.length > 0 &&
-    developers.every(([, entry]) => entry.status === "review_approved" || entry.status === "done");
-  const hasNewApproved = developers.some(([, entry]) => entry.status === "review_approved");
-  if (!allReady) return { ready: false, reason: "not all developers are review_approved or done" };
-  if (!hasNewApproved) return { ready: false, reason: "all developers are already done" };
+    developers.every(([, entry]) => isDeveloperReadyForTest(entry.status));
+  const hasNewReady = developers.some(([, entry]) => isDeveloperNewlyReadyForTest(entry.status));
+  if (!allReady) return { ready: false, reason: "not all developers are ready_for_test, review_approved, or done" };
+  if (!hasNewReady) return { ready: false, reason: "all developers are already done" };
 
   const artifact = buildFullTestArtifact(task);
-  const fp = fingerprint(args.role, args.key, "tester_full_test", "all-developers", "review_approved", tester.attempt, artifact);
+  const fp = fingerprint(args.role, args.key, "tester_full_test", "all-developers", "ready_for_test", tester.attempt, artifact);
   return readyIfUnseen(args, {
     role: args.role,
     key: args.key,
     action: "tester_full_test",
     targets: ["all-developers"],
     fingerprint: fp,
-    reason: "all developers are review_approved",
+    reason: "all developers are ready for test",
   });
 }
 
