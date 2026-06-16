@@ -22,43 +22,22 @@
 
 ## 注册前检查
 
-### Role 校验
+- 非法 role 不写入;Agent 追问合法 role,用户取消则中止。
+- 调 `role.ts` 前先扫描所有 role 条目:同 role 且 `cwd == basename(pwd)` 或 key 等于当前 worktree 名可幂等刷新;不同 role 已绑定当前 cwd 时拒绝跨角色切换,引导用户用 `/kanban --update` 调整。
+- `role.ts` 只在当前 role 内查已有 key/cwd,不会替 Agent 做跨角色拦截。
 
-非法 role 不直接写入。Agent 应追问用户选择合法 role;用户取消则中止,kanban 不变。
+## 预分配席位与 stable key
 
-### 跨角色保护
+当前 cwd 未注册时,先运行 `query.ts <uuid>` 读取 `idleStations`。可认领席位条件为 `status=idle && attempt=0`。
 
-调用 `role.ts` 前,Agent 必须扫描当前任务所有 role 条目:
+合同:
 
-- 同 role 且 `cwd == basename(pwd)` 或 key 等于当前 worktree 名:允许幂等刷新 brief。
-- 不同 role 已绑定当前 worktree:拒绝跨角色切换,引导用户使用 `/kanban --update <uuid> add:<role>:<name>:'{"brief":"..."}'`。
-
-`role.ts` 只在当前 role 内查已有 key/cwd,不会替 Agent 完成跨角色拦截。
-
-### 预分配席位认领
-
-当当前 cwd 尚未注册时,Agent 可运行 `query.ts <uuid>` 并读取尾部 JSON 的 `idleStations`。
-
-`idleStations[role]` 的筛选条件是:
-
-- `status == "idle"`
-- `attempt == 0`
-
-认领合同:
-
-- `--claim-from` 当前仅用于 developer。
-- 非 developer 的 `idleStations` 不能传给 `role.ts --claim-from`。
-- developer 选择认领后,脚本传 `--claim-from <stationName>`;stable key 保持预分配席位名,cwd/worktree 记录当前目录名。
-- 若 `--claim-from` 等于当前 worktree 名,无需认领,走同角色幂等路径。
-- 若认领因竞争失败,重新运行 `query.ts`;仍有空置席位则重新展示,否则回退到正常创建。
-- developer idle station 可能含 `blockedOn`;展示时必须提示阻塞关系。
-
-Stable key 选择:
-
-- developer 的 `--worktree` 是真实 cwd 名;认领预分配席位时通过 `--claim-from` 保留 station key。
-- reviewer 不绑定真实 worktree;`--worktree` 应使用 entry key。优先复用已有 reviewer idle station key,没有预分配时默认使用 `review`。
-- tester / integrator 绑定真实 worktree。只有 station key 等于当前 cwd 或已记录的 cwd 时,才可按该 key 幂等刷新。
-- tester / integrator 的 station key 与当前 cwd 不同时,不要用 station key 调 `role.ts`;应新建当前 cwd 条目,并用 `/kanban --update` 清理或调整旧 idle station,避免残留 blocker。
+- `--claim-from` 仅用于 developer;非 developer 的 `idleStations` 不能传给 `role.ts --claim-from`。
+- developer 认领后 stable key 保持预分配席位名,cwd/worktree 记录当前目录名;若 station key 等于当前 worktree 名,直接走幂等路径。
+- developer idle station 若带 `blockedOn`,展示时必须提示阻塞关系。
+- 竞争失败后重新运行 `query.ts`;仍有空位则重新展示,否则创建当前 cwd 条目。
+- reviewer 不绑定真实 worktree;`--worktree` 使用 entry key,优先复用 reviewer idle station,否则默认 `review`。
+- tester / integrator 绑定真实 worktree。只有 station key 等于当前 cwd 或已记录 cwd 时才可幂等刷新;否则新建当前 cwd 条目,再用 `/kanban --update` 清理旧 idle station。
 
 ## Brief 合同
 
@@ -104,22 +83,20 @@ developer 注册或认领后,脚本会按状态决定是否自动开工:
 | task 为 `planned` 且 developer 开工 | task 提升为 `in_progress` | 汇报状态变化 |
 | developer 为 `follow_issue` | 自动转 `working` | 先读 owner 为自己的 open issue 再修复 |
 
-注册成功后,若 `autoStarted=true`,Agent 不再追问"是否开始"、"从哪里开始"。用户后续回复"ok"、"可以"、"继续"等,视为推进信号。
+`autoStarted=true` 后,Agent 不再追问"是否开始"、"从哪里开始"。用户后续回复"ok"、"可以"、"继续"等,视为推进信号。
 
 ## 角色承接判断
 
 注册后运行 `query.ts <uuid>` 并读取尾部 JSON。`recommendedNextAction` 只作短提示,不能替代角色手册。
 
-关键字段定义:
+关键字段定义与 `cmd-query.md` 保持一致,本页只列承接需要的字段:
 
 | 字段 | 定义 |
 |------|------|
-| `currentEntry` | 当前 cwd 匹配到的 role/key/status/brief;先按 `cwd`,再按 key 回退 |
-| `idleStations` | 每个 role 下 `status=idle && attempt=0` 的条目;developer 项可带 `blockedOn` |
-| `eligibleReviewTargets` | 所有 `developer.status == waiting_review` 的条目 |
-| `readyForTestTargets` | 所有 `developer.status == ready_for_test 或 review_approved` 的条目 |
-| `testerBlockedBy` | 所有尚未 `ready_for_test / review_approved / done` 的 developer 条目 |
-| `integratorBlockedBy` | 所有 developer / tester 中 `status != done` 的条目;reviewer 仅在存在 `waiting_review` developer 时阻塞;owner 不阻塞 integrator |
+| `currentEntry` | 当前 cwd 匹配到的 role/key/status/brief |
+| `idleStations` | 可认领空位;developer 项可带 `blockedOn` |
+| `eligibleReviewTargets` / `readyForTestTargets` | reviewer / tester 的候选目标 |
+| `testerBlockedBy` / `integratorBlockedBy` | 阻塞旧字段,用于解释等待原因;正式承接以 `can*` 为准 |
 | `canReview` / `canTest` / `canIntegrate` / `canOwnerCloseout` | 机器可读 gate 判断;表示正式承接该 gate 的前置状态和必要 artifact 都已满足 |
 | `blockedReasons` | gate 阻塞原因,用于等待或向 Human 汇报 |
 | `requiredArtifacts` | 当前 gate 需要且必须有效的 report/self-review/test/integration artifact;可带 `missing` / `valid` / `problem` |

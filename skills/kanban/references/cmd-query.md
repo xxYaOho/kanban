@@ -16,51 +16,16 @@
 
 ## 展示布局
 
-### 顶部横幅(按 status 变体)
+`query.ts` 负责最终 plain text,Agent 逐字转发,不重排。输出必须保留这些区域:
 
-**planned / in_progress**:
-```
-📋 Task 019d9b9f  [planned]  (CLI v0.14 优化)
-Repo:    wave
-Plan:    ~/.kanban/wave/019d9b9f.../plan.md
-Created: 2026-04-18 14:00
-Updated: 2026-04-18 14:32
-```
+- 顶部横幅:task short id、status、description、repo、plan、created、updated;`draft` 额外提示先提升到 `planned`;终态只换状态图标。
+- Entries 矩阵:所有 owner / developer / reviewer / tester / integrator 条目的 `Entry / Role / Status / Attempt / CWD / Reports`。
+- 当前身份视角:若 cwd 匹配席位,高亮当前 role/key/status/brief 并输出 `recommendedNextAction`。
+- Plan 与子计划索引:列出 `plan-*.md`;当前 cwd 能匹配席位名时追加 `Current SubPlan`。
+- Open Issues 摘要:列 open `issue-*.md`,不展开正文。
+- 最近报告列表:按时间倒序列 `report-*`、`self-review-*`、`review-*`、`test-*`、`integration-*`、`owner-closeout-*`。
 
-**draft**(加警告):
-```
-📋 Task 019d9b9f  [DRAFT]  (CLI v0.14 优化)
-⚠️  此任务仍在草案阶段,worktree 可能未分配。
-    完善后运行:/kanban --update 019d9b9f status=planned
-...
-```
-
-**done / archived / aborted**:同 planned 风格,但图标换成 `✅ / 📦 / ❌`
-
-### Entries 矩阵
-
-以表格展示所有 owner / developer / reviewer / tester / integrator 条目当前状态:
-
-```
-Entry         Role       Status          Attempt  CWD       Reports
-------------  ---------  --------------  -------  --------  -------
-chat-box      developer  working         1        (same)    1
-left-sidebar  developer  review_rejected 2        dev-left  2
-review        reviewer   idle            0        -         -
-test          tester     idle            0        -         -
-```
-
-### 当前身份视角(若 cwd 是某个 worktree)
-
-在 Worktree 矩阵下方高亮**当前 worktree 行**,并给出下一步建议:
-
-```
-📍 当前身份: dev-serve (developer)
-   你刚交了 report-dev-serve-01.md,status=ready_for_test
-   下一步:等 tester 处理。可以切到其他 worktree,或 /kanban --thread <id> 重查。
-```
-
-下一步建议的决策表:
+下一步建议由脚本生成,语义需保持:
 
 | 身份      | entry.status       | 建议                                                   |
 | --------- | ------------------ | ------------------------------------------------------ |
@@ -71,37 +36,11 @@ test          tester     idle            0        -         -
 | developer | ready_for_test     | 等 tester;可切别的 worktree                            |
 | developer | waiting_review     | owner 已插入 reviewer gate;等 reviewer                  |
 | developer | review_rejected    | 读最新 review-<name>-NN.md,依据修改,attempt+1         |
-| reviewer  | idle               | 检查所有 developer waiting_review 的 worktree,拉取报告 review |
+| reviewer  | idle               | 检查 waiting_review 且 artifact 有效的 developer,拉取报告 review |
 | reviewer  | working            | 继续 review                                            |
-| tester    | idle               | 所有 dev worktree 都 ready_for_test / review_approved / done 时,拉分支跑测,写 test-NN.md |
-| integrator | idle              | 所有 dev worktree 测试通过时,合并分支,写 integration-NN.md |
+| tester    | idle               | `canTest=true` 时拉分支跑测,写 test-NN.md |
+| integrator | idle              | `canIntegrate=true` 时合并分支,写 integration-NN.md |
 | 任意      | blocked            | 读 `blocked_on` 字段,先解阻塞                         |
-
-### Plan 与子计划索引
-
-`query.ts` 直接输出可转发的 plain text。若任务目录存在 `plan-*.md`,在 `Plan:` 下方列出子计划索引；若当前 cwd 匹配某个席位且可根据席位名匹配子计划,追加 `Current SubPlan:` 提示。用户需要查看全文时,Agent 直接读取对应文件路径。
-
-### 最近报告列表
-
-按时间倒序列该任务 `~/.kanban/<repo>/<uuid>/` 下的所有 `report-*.md` / `self-review-*.md` / `review-*.md` / `test-*.md` / `integration-*.md` / `owner-closeout-*.md`,带相对时间:
-
-```
-最近报告:
-  5分钟前   report-dev-serve-01.md          (dev-serve 提交)
-  20分钟前  review-dev-gui-02.md            (reviewer 回绝)
-  1小时前   report-dev-gui-02.md            (dev-gui 重试)
-```
-
-### Open Issues 摘要
-
-若任务目录存在 `status: open` 的 `issue-*.md`,在最近报告之前展示摘要，不展开完整正文：
-
-```
-Open Issues:
-  - issue-mainline-bug-2f02a011.md owner=mainline: 压缩预览在 unchanged 场景下没有保留 receipt — 测试 unchanged 场景时...
-```
-
-需要查看细节时，Agent 直接读取对应 issue 文件。
 
 ## 实现脚本
 
@@ -124,10 +63,10 @@ bun run $SCRIPTS/query.ts <uuid>
 | `readyForTestTargets` | `developer` 中所有 `ready_for_test` 或 `review_approved` 条目 |
 | `testerBlockedBy` | tester 开工前仍未 `ready_for_test / review_approved / done` 的 developer 条目 |
 | `integratorBlockedBy` | integrator 开工前所有未 `done` 的 developer / tester 前置条目;reviewer 仅在存在 `waiting_review` developer 时阻塞;owner 不阻塞 integrator |
-| `canReview` / `canTest` / `canIntegrate` / `canOwnerCloseout` | 机器可读 gate 判断;供 Agent 承接前先读,不替代角色手册 |
+| `canReview` / `canTest` / `canIntegrate` / `canOwnerCloseout` | 机器可读 gate 判断;表示正式承接该 gate 的前置状态和必要 artifact 都已满足 |
 | `blockedReasons` | gate 不能推进时的结构化原因,包含 `gate` / `reason` / 可选 `entries` |
-| `requiredArtifacts` | 当前 gate 需要的报告文件及是否缺失 |
-| `nextCommandHints` | 可执行下一步的短命令提示;Agent 仍需按角色手册履职 |
+| `requiredArtifacts` | 当前 gate 需要的报告文件;可带 `missing` / `valid` / `problem` |
+| `nextCommandHints` | 基于 `can*` 的短命令提示;Agent 仍需按角色手册履职 |
 | `recommendedNextAction` | 一句话动作提示，只做引导，不替代角色手册 |
 
 ## 边界情况

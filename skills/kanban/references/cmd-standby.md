@@ -25,11 +25,7 @@
 bun run $SCRIPTS/standby-resolve.ts
 ```
 
-脚本扫描 `kanban.json` 中 `status ∈ {planned, in_progress}` 的任务,按当前 `basename(pwd)` 匹配各 role entry 的 `cwd` 或 key。
-
-- 零候选 → 停止,提示先注册席位。
-- 多候选 → 停止,提示指定 thread。
-- 唯一候选 → 使用返回的 `thread`、`role`、`key` 进入待命。
+脚本扫描 `status ∈ {planned, in_progress}` 的任务,按当前 `basename(pwd)` 匹配各 role entry 的 `cwd` 或 key。零候选停止并提示先注册;多候选停止并提示指定 thread;唯一候选使用返回的 `thread/role/key` 进入待命。
 
 ## Wait 控制器
 
@@ -43,17 +39,9 @@ bun run $SCRIPTS/standby-wait.ts \
   [--seen <fingerprint,...>]
 ```
 
-等待策略由脚本维护:
+等待策略由脚本维护:启动即检查;空轮询间隔 15s 起,每 5 次翻倍,序列 `15/30/60/120/240s`,最大 240s;最多 100 次空轮询,最长约 5h38m45s;到期提示 `已退出 Standby，请根据需要重启`。
 
-- 启动后立即检查一次,不先 sleep。
-- 初始空轮询间隔 15 秒;每 5 次连续空轮询后翻倍。
-- 间隔序列:15s、30s、60s、120s、240s;最大 240 秒。
-- 最多空轮询 100 次;最长等待约 5 小时 38 分 45 秒。
-- 到期提示:`已退出 Standby，请根据需要重启`。
-
-Agent 只维护 `seen` 字符串。等待计时、sleep、空轮询次数和动态间隔由 `standby-wait.ts` 管理;Agent 不在对话记忆里计算轮询次数。
-
-stdout 只用于机器可解析 JSON。stderr 只用于少量诊断;不要依赖 stderr 实时进入对话。
+Agent 只维护 `seen` 字符串,不在对话记忆里计算轮询次数。stdout 只用于机器 JSON;stderr 仅作诊断。
 
 结果处理:
 
@@ -63,19 +51,7 @@ stdout 只用于机器可解析 JSON。stderr 只用于少量诊断;不要依赖
 
 `standby-wait.ts` 不执行角色工作,不写 report,不改 kanban。检测到 `ready=true` 时立即退出,计时状态随进程销毁;角色流程结束后若继续 standby,新计时器从 15 秒重新开始。
 
-到期 JSON 合同:
-
-```json
-{
-  "ready": false,
-  "expired": true,
-  "emptyPolls": 100,
-  "maxEmptyPolls": 100,
-  "totalWaitSec": 20325,
-  "reason": "standby wait reached 100 empty polls",
-  "message": "已退出 Standby，请根据需要重启"
-}
-```
+到期 JSON 必须包含 `ready:false`、`expired:true`、`emptyPolls`、`maxEmptyPolls`、`totalWaitSec`、`reason`、`message`。
 
 ## Trigger 脚本
 
@@ -89,38 +65,13 @@ bun run $SCRIPTS/standby-trigger.ts \
 
 `standby-trigger.ts` 只读 `kanban.json` 和 issue 文件,不写状态、不写报告。
 
-输出合同:
-
-```json
-{ "ready": false, "reason": "no actionable standby trigger" }
-```
-
-```json
-{
-  "ready": true,
-  "role": "reviewer",
-  "key": "review",
-  "action": "review_waiting_developer",
-  "targets": ["motion"],
-  "fingerprint": "reviewer:review:review_waiting_developer:motion:waiting_review:3:report-motion-03.md",
-  "reason": "developer.motion is waiting_review"
-}
-```
+输出合同:未触发时 `{ ready:false, reason }`;触发时必须包含 `ready:true`、`role`、`key`、`action`、`targets`、`fingerprint`、`reason`。
 
 ## 触发规则
 
-Reviewer:
+Reviewer:存在 `developer.<name>.status == waiting_review`;脚本按 developer key 字典序返回第一个 target;Agent 只执行 stdout JSON 中的 `targets`;同一 report fingerprint 已在 `seen` 时不重复触发。
 
-- 条件:存在 `developer.<name>.status == waiting_review`。
-- 选择规则:脚本按 developer key 字典序返回第一个 `waiting_review` target;Agent 只执行 stdout JSON 中的 `targets`。
-- 动作:按 `role-reviewer.md` 审查目标 developer 最新 report。
-- 同一 report 的 fingerprint 已在 `seen` 中时不重复触发。
-
-Tester:
-
-- 回测优先:tester 为 `waiting` 时只走回测;若没有 open issue owner developer 重新 `ready_for_test` 或 `review_approved`,不继续判断全测。
-- 全测:tester 非 `waiting` 且非 `done`,所有 developer 都是 `ready_for_test` / `review_approved` / `done`,且至少一个 developer 是 `ready_for_test` 或 `review_approved`。
-- 动作:按 `role-test.md` 全测或回测。
+Tester:回测优先。tester 为 `waiting` 时只走回测;若没有 open issue owner developer 重新 `ready_for_test` 或 `review_approved`,不继续判断全测。全测要求 tester 非 `waiting/done`,所有 developer 都是 `ready_for_test/review_approved/done`,且至少一个 developer 是 `ready_for_test` 或 `review_approved`。
 
 Developer:
 
