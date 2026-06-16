@@ -1,11 +1,8 @@
 ---
 name: kanban
 description: >
-  Explicit `/kanban` task orchestration for multi-agent git worktrees. Use when the
-  user invokes `/kanban`, mentions kanban/thread/task/role work, asks a
-  developer/reviewer/tester/integrator seat to continue, or the current worktree is
-  already registered. Do not treat ordinary code review requests as kanban review
-  unless kanban context is explicit.
+  Manual `/kanban` orchestration protocol for multi-agent git worktree tasks.
+  Use only when the user explicitly invokes `/kanban` or asks to use the kanban skill.
 ---
 
 # Kanban Skill
