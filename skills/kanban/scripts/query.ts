@@ -5,10 +5,10 @@
  * 纯读,不加锁。展示任务全貌与下一步建议。
  */
 import { basename } from "path";
-import { readdirSync, statSync, existsSync } from "fs";
+import { readdirSync, statSync, existsSync, readFileSync } from "fs";
 import { readKanban, resolveUuid, type Task } from "./kanban-io";
 import { fromKanbanRel, waveDir } from "./paths";
-import { listIssues } from "./issue-io";
+import { listIssues, parseFrontmatter } from "./issue-io";
 import { reportFilePrefixes, roleKeys, type Role } from "./protocol";
 
 interface EntrySummary {
@@ -21,6 +21,32 @@ interface EntrySummary {
 }
 
 type CurrentEntry = Pick<EntrySummary, "role" | "key" | "status" | "brief">;
+
+interface BlockedReason {
+  gate: "review" | "test" | "integrate" | "owner_closeout";
+  reason: string;
+  entries?: EntrySummary[];
+}
+
+interface RequiredArtifact {
+  role: Role;
+  key: string;
+  type: string;
+  file: string | null;
+  requiredFor: "review" | "test" | "integrate" | "owner_closeout";
+  missing: boolean;
+  valid?: boolean;
+  problem?: string;
+}
+
+type GateName = RequiredArtifact["requiredFor"];
+
+interface NextCommandHint {
+  role: Role;
+  key: string;
+  command: string;
+  purpose: string;
+}
 
 const BANNER_ICON: Record<string, string> = {
   draft: "📋",
@@ -240,6 +266,318 @@ function buildIntegratorBlockedBy(task: Task): EntrySummary[] {
   return blockers;
 }
 
+function latestDeveloperReport(entry: { reports?: string[] }): string | null {
+  const reports = entry.reports ?? [];
+  return reports.length > 0 ? reports[reports.length - 1] : null;
+}
+
+function artifactPath(task: Task, uuid: string, file: string | null | undefined): string | null {
+  if (!file) return null;
+  const resolved = fromKanbanRel(file);
+  if (resolved !== file || file.startsWith("/")) return resolved;
+  return `${waveDir(task.repo, uuid)}/${basename(file)}`;
+}
+
+function readArtifactFrontmatter(task: Task, uuid: string, file: string | null | undefined): Record<string, string> | null {
+  const path = artifactPath(task, uuid, file);
+  if (!path || !existsSync(path)) return null;
+  return parseFrontmatter(readFileSync(path, "utf-8"));
+}
+
+function formatExpectedProblem(key: string, expected: string, actual: string | undefined): string {
+  return `${key} expected ${expected}, got ${actual ?? "(missing)"}`;
+}
+
+function validateArtifact(
+  task: Task,
+  uuid: string,
+  file: string | null | undefined,
+  expected: Record<string, string>,
+): { missing: boolean; valid: boolean; problem?: string } {
+  const fm = readArtifactFrontmatter(task, uuid, file);
+  if (!fm) return { missing: true, valid: false, problem: "missing" };
+  for (const [key, value] of Object.entries(expected)) {
+    if (fm[key] !== value) {
+      return { missing: false, valid: false, problem: formatExpectedProblem(key, value, fm[key]) };
+    }
+  }
+  return { missing: false, valid: true };
+}
+
+function validateDeveloperReportPair(
+  task: Task,
+  uuid: string,
+  key: string,
+  report: string | null,
+  selfReview: string | null,
+): { report: { missing: boolean; valid: boolean; problem?: string }; selfReview: { missing: boolean; valid: boolean; problem?: string } } {
+  const reportFm = readArtifactFrontmatter(task, uuid, report);
+  const selfReviewFm = readArtifactFrontmatter(task, uuid, selfReview);
+  let reportValidation = reportFm
+    ? { missing: false, valid: true } as { missing: boolean; valid: boolean; problem?: string }
+    : { missing: true, valid: false, problem: "missing" };
+  let selfReviewValidation = selfReviewFm
+    ? { missing: false, valid: true } as { missing: boolean; valid: boolean; problem?: string }
+    : { missing: true, valid: false, problem: "missing" };
+
+  if (reportFm) {
+    for (const [field, expected] of Object.entries({ kind: "dev-report", uuid, worktree: key })) {
+      if (reportFm[field] !== expected) {
+        reportValidation = { missing: false, valid: false, problem: formatExpectedProblem(field, expected, reportFm[field]) };
+        break;
+      }
+    }
+  }
+
+  if (selfReviewFm) {
+    for (const [field, expected] of Object.entries({ kind: "self-review", uuid, worktree: key })) {
+      if (selfReviewFm[field] !== expected) {
+        selfReviewValidation = { missing: false, valid: false, problem: formatExpectedProblem(field, expected, selfReviewFm[field]) };
+        break;
+      }
+    }
+  }
+
+  if (reportFm && selfReview && reportFm.self_review !== selfReview) {
+    reportValidation = { missing: false, valid: false, problem: formatExpectedProblem("self_review", selfReview, reportFm.self_review) };
+  }
+
+  if (selfReviewFm && report && selfReviewFm.source_report !== report) {
+    selfReviewValidation = { missing: false, valid: false, problem: formatExpectedProblem("source_report", report, selfReviewFm.source_report) };
+  }
+
+  if (reportFm && selfReviewFm && reportFm.attempt !== selfReviewFm.attempt) {
+    reportValidation = { missing: false, valid: false, problem: `attempt expected ${selfReviewFm.attempt ?? "(missing)"}, got ${reportFm.attempt ?? "(missing)"}` };
+    selfReviewValidation = { missing: false, valid: false, problem: `attempt expected ${reportFm.attempt ?? "(missing)"}, got ${selfReviewFm.attempt ?? "(missing)"}` };
+  }
+
+  return { report: reportValidation, selfReview: selfReviewValidation };
+}
+
+function hasInvalidArtifact(requiredArtifacts: RequiredArtifact[], gate: GateName): boolean {
+  return requiredArtifacts.some((artifact) => artifact.requiredFor === gate && (!artifact.valid || artifact.missing));
+}
+
+function activeIntegratorEntries(task: Task): EntrySummary[] {
+  const decisions = Object.values(task.owner ?? {}).flatMap((entry) => entry.decisions ?? []);
+  const hasIntegratorDecision = decisions.some((decision) => decision.type === "integrator_required");
+  return Object.entries(task.integrator ?? {})
+    .filter(([, entry]) =>
+      entry.status !== "done" && (
+        entry.attempt > 0 ||
+        Boolean(entry.report) ||
+        (entry.merged ?? []).length > 0 ||
+        (entry.conflicts ?? []).length > 0 ||
+        hasIntegratorDecision
+      )
+    )
+    .map(([key, entry]) => summarizeEntry("integrator", key, entry));
+}
+
+function hasIntegratorRequiredDecision(task: Task): boolean {
+  return Object.values(task.owner ?? {})
+    .flatMap((entry) => entry.decisions ?? [])
+    .some((decision) => decision.type === "integrator_required");
+}
+
+function buildRequiredArtifacts(task: Task, uuid: string): RequiredArtifact[] {
+  const artifacts: RequiredArtifact[] = [];
+
+  for (const [key, entry] of Object.entries(task.developer ?? {})) {
+    if (entry.status === "ready_for_test" || entry.status === "waiting_review" || entry.status === "review_approved") {
+      const report = latestDeveloperReport(entry);
+      const pairValidation = validateDeveloperReportPair(task, uuid, key, report, entry.self_review);
+      const requiredFor = entry.status === "waiting_review" ? "review" : "test";
+      artifacts.push({
+        role: "developer",
+        key,
+        type: "dev-report",
+        file: report,
+        requiredFor,
+        ...pairValidation.report,
+      });
+      artifacts.push({
+        role: "developer",
+        key,
+        type: "self-review",
+        file: entry.self_review,
+        requiredFor,
+        ...pairValidation.selfReview,
+      });
+    }
+  }
+
+  for (const [key, entry] of Object.entries(task.tester ?? {})) {
+    if (entry.status === "done") {
+      const validation = validateArtifact(task, uuid, entry.report, {
+        kind: "test-report",
+        uuid,
+        verdict: "pass",
+      });
+      artifacts.push({
+        role: "tester",
+        key,
+        type: "test-report",
+        file: entry.report,
+        requiredFor: "integrate",
+        ...validation,
+      });
+      artifacts.push({
+        role: "tester",
+        key,
+        type: "test-report",
+        file: entry.report,
+        requiredFor: "owner_closeout",
+        ...validation,
+      });
+    }
+  }
+
+  for (const [key, entry] of Object.entries(task.integrator ?? {})) {
+    if (entry.status === "done" || entry.attempt > 0 || entry.report) {
+      const validation = entry.status === "done"
+        ? validateArtifact(task, uuid, entry.report, { kind: "integration-report", uuid })
+        : { missing: false, valid: true };
+      artifacts.push({
+        role: "integrator",
+        key,
+        type: "integration-report",
+        file: entry.report,
+        requiredFor: "owner_closeout",
+        ...validation,
+      });
+    }
+  }
+
+  return artifacts;
+}
+
+function buildBlockedReasons(
+  task: Task,
+  eligibleReviewTargets: EntrySummary[],
+  testerBlockedBy: EntrySummary[],
+  integratorBlockedBy: EntrySummary[],
+  requiredArtifacts: RequiredArtifact[],
+): BlockedReason[] {
+  const reasons: BlockedReason[] = [];
+
+  if (eligibleReviewTargets.length === 0) {
+    reasons.push({ gate: "review", reason: "no developer is waiting_review" });
+  }
+
+  if (testerBlockedBy.length > 0) {
+    reasons.push({
+      gate: "test",
+      reason: "developer entries are not ready_for_test/review_approved/done",
+      entries: testerBlockedBy,
+    });
+  }
+
+  if (hasInvalidArtifact(requiredArtifacts, "review")) {
+    reasons.push({ gate: "review", reason: "required developer report or self-review artifact is missing or invalid" });
+  }
+
+  if (hasInvalidArtifact(requiredArtifacts, "test")) {
+    reasons.push({ gate: "test", reason: "required developer report or self-review artifact is missing or invalid" });
+  }
+
+  if (integratorBlockedBy.length > 0) {
+    reasons.push({
+      gate: "integrate",
+      reason: "integration prerequisites are not done",
+      entries: integratorBlockedBy,
+    });
+  }
+
+  const testers = Object.values(task.tester ?? {});
+  if (testers.length === 0) {
+    reasons.push({ gate: "integrate", reason: "tester must be done with passing test report before integration" });
+  }
+  if (testers.length === 0 || testers.some((entry) => entry.status !== "done")) {
+    reasons.push({ gate: "owner_closeout", reason: "tester must be done before owner closeout" });
+  }
+
+  if (hasInvalidArtifact(requiredArtifacts, "integrate")) {
+    reasons.push({ gate: "integrate", reason: "passing test report artifact is missing or invalid" });
+  }
+
+  const activeIncompleteIntegrator = activeIntegratorEntries(task);
+  if (activeIncompleteIntegrator.length > 0) {
+    reasons.push({
+      gate: "owner_closeout",
+      reason: "active integrator must finish before owner closeout",
+      entries: activeIncompleteIntegrator,
+    });
+  }
+
+  if (hasIntegratorRequiredDecision(task) && Object.values(task.integrator ?? {}).every((entry) => entry.status !== "done")) {
+    reasons.push({ gate: "owner_closeout", reason: "owner requires integrator evidence before closeout" });
+  }
+
+  if (hasInvalidArtifact(requiredArtifacts, "owner_closeout")) {
+    reasons.push({ gate: "owner_closeout", reason: "required test or integration artifact is missing or invalid" });
+  }
+
+  return reasons;
+}
+
+function buildNextCommandHints(
+  task: Task,
+  eligibleReviewTargets: EntrySummary[],
+  requiredArtifacts: RequiredArtifact[],
+  canReview: boolean,
+  canTest: boolean,
+  canIntegrate: boolean,
+  canOwnerCloseout: boolean,
+): NextCommandHint[] {
+  const hints: NextCommandHint[] = [];
+
+  for (const target of canReview ? eligibleReviewTargets : []) {
+    const targetArtifactsValid = !requiredArtifacts.some((artifact) =>
+      artifact.requiredFor === "review" && artifact.role === "developer" && artifact.key === target.key &&
+      (!artifact.valid || artifact.missing)
+    );
+    if (targetArtifactsValid) {
+      hints.push({
+        role: "reviewer",
+        key: "review",
+        command: `/kanban --role reviewer "review developer.${target.key}"`,
+        purpose: `review developer.${target.key}`,
+      });
+    }
+  }
+
+  if (canTest) {
+    hints.push({
+      role: "tester",
+      key: "test",
+      command: `/kanban --role tester "verify ready developer delivery"`,
+      purpose: "run tester validation",
+    });
+  }
+
+  if (canIntegrate) {
+    hints.push({
+      role: "integrator",
+      key: "main",
+      command: `/kanban --role integrator "merge tested delivery"`,
+      purpose: "run optional integration",
+    });
+  }
+
+  const ownerKey = Object.keys(task.owner ?? {})[0] ?? "main";
+  if (canOwnerCloseout) {
+    hints.push({
+      role: "owner",
+      key: ownerKey,
+      command: `bun run $SCRIPTS/action-write.ts --action owner.closeout --thread <uuid> --key ${ownerKey} --closeout owner-closeout-<NN>.md`,
+      purpose: "perform owner closeout after writing closeout artifact",
+    });
+  }
+
+  return hints;
+}
+
 function shortList(entries: EntrySummary[], max = 3): string {
   const shown = entries.slice(0, max).map((entry) => `${entry.key}(${entry.status})`);
   const suffix = entries.length > max ? ` 等 ${entries.length} 项` : "";
@@ -360,6 +698,33 @@ async function main() {
   const readyForTestTargets = buildReadyForTestTargets(task);
   const testerBlockedBy = buildTesterBlockedBy(task);
   const integratorBlockedBy = buildIntegratorBlockedBy(task);
+  const requiredArtifacts = buildRequiredArtifacts(task, uuid!);
+  const blockedReasons = buildBlockedReasons(
+    task,
+    eligibleReviewTargets,
+    testerBlockedBy,
+    integratorBlockedBy,
+    requiredArtifacts,
+  );
+  const canReview = eligibleReviewTargets.length > 0 &&
+    !blockedReasons.some((reason) => reason.gate === "review");
+  const canTest = testerBlockedBy.length === 0 &&
+    readyForTestTargets.length > 0 &&
+    !blockedReasons.some((reason) => reason.gate === "test");
+  const canIntegrate = integratorBlockedBy.length === 0 &&
+    Object.keys(task.developer ?? {}).length > 0 &&
+    !blockedReasons.some((reason) => reason.gate === "integrate");
+  const canOwnerCloseout = Object.keys(task.owner ?? {}).length > 0 &&
+    !blockedReasons.some((reason) => reason.gate === "owner_closeout");
+  const nextCommandHints = buildNextCommandHints(
+    task,
+    eligibleReviewTargets,
+    requiredArtifacts,
+    canReview,
+    canTest,
+    canIntegrate,
+    canOwnerCloseout,
+  );
   const recommendedNextAction = buildRecommendedNextAction(
     current,
     eligibleReviewTargets,
@@ -430,6 +795,13 @@ async function main() {
     readyForTestTargets,
     testerBlockedBy,
     integratorBlockedBy,
+    canReview,
+    canTest,
+    canIntegrate,
+    canOwnerCloseout,
+    blockedReasons,
+    requiredArtifacts,
+    nextCommandHints,
     recommendedNextAction,
   });
   out += `\n\0JSON\n${jsonBlock}\n`;

@@ -120,13 +120,17 @@ developer 注册或认领后,脚本会按状态决定是否自动开工:
 | `readyForTestTargets` | 所有 `developer.status == ready_for_test 或 review_approved` 的条目 |
 | `testerBlockedBy` | 所有尚未 `ready_for_test / review_approved / done` 的 developer 条目 |
 | `integratorBlockedBy` | 所有 developer / tester 中 `status != done` 的条目;reviewer 仅在存在 `waiting_review` developer 时阻塞;owner 不阻塞 integrator |
+| `canReview` / `canTest` / `canIntegrate` / `canOwnerCloseout` | 机器可读 gate 判断;表示正式承接该 gate 的前置状态和必要 artifact 都已满足 |
+| `blockedReasons` | gate 阻塞原因,用于等待或向 Human 汇报 |
+| `requiredArtifacts` | 当前 gate 需要且必须有效的 report/self-review/test/integration artifact;可带 `missing` / `valid` / `problem` |
+| `nextCommandHints` | 下一步短命令提示,只作辅助 |
 
 承接规则:
 
-- reviewer:若 `eligibleReviewTargets` 非空,按 `role-reviewer.md` 审查目标;否则等待。
-- owner:按 `role-owner.md` 做计划协调、gate decision 或 closeout。
-- tester:若 `testerBlockedBy` 为空,按 `role-test.md` 测试;否则等待列出的 developer。
-- integrator:若 `integratorBlockedBy` 为空,按 `role-integrator.md` 合并;否则等待列出的条目。
+- reviewer:若 `canReview=true`,按 `role-reviewer.md` 审查 `eligibleReviewTargets`;否则读取 `blockedReasons` / `requiredArtifacts` 并等待或向 Human 汇报缺失证据。
+- owner:按 `role-owner.md` 做计划协调和 gate decision;只有 `canOwnerCloseout=true` 时才能执行 closeout。
+- tester:若 `canTest=true`,按 `role-test.md` 测试 `readyForTestTargets`;否则读取 `blockedReasons` / `requiredArtifacts` 并等待。
+- integrator:若 `canIntegrate=true`,按 `role-integrator.md` 合并;否则读取 `blockedReasons` / `requiredArtifacts` 并等待。
 
 ## 输出格式
 

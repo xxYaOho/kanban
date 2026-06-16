@@ -158,8 +158,34 @@ async function seedTask(home: string): Promise<string> {
     },
   }, null, 2) + "\n");
   await writeFile(join(taskDir, "plan.md"), "# Regression protocol task\n", "utf-8");
-  await writeFile(join(taskDir, "report-alpha-01.md"), "---\nkind: dev-report\n---\n", "utf-8");
-  await writeFile(join(taskDir, "report-gamma-01.md"), "---\nkind: dev-report\n---\n", "utf-8");
+  await writeFile(join(taskDir, "report-alpha-01.md"), [
+    "---",
+    "kind: dev-report",
+    `uuid: ${uuid}`,
+    "worktree: alpha",
+    "role: developer",
+    "attempt: 1",
+    "created: 2026-05-22T10:00:00+08:00",
+    "status_after: waiting_review",
+    "self_review: self-review-alpha-01.md",
+    "---",
+    "",
+    "# Dev Report",
+  ].join("\n"), "utf-8");
+  await writeFile(join(taskDir, "report-gamma-01.md"), [
+    "---",
+    "kind: dev-report",
+    `uuid: ${uuid}`,
+    "worktree: gamma",
+    "role: developer",
+    "attempt: 1",
+    "created: 2026-05-22T10:00:00+08:00",
+    "status_after: ready_for_test",
+    "self_review: self-review-gamma-01.md",
+    "---",
+    "",
+    "# Dev Report",
+  ].join("\n"), "utf-8");
   await writeFile(join(taskDir, "review-gamma-01.md"), "---\nkind: review\nverdict: approve\n---\n", "utf-8");
   return taskDir;
 }
@@ -227,8 +253,254 @@ async function testQueryJson(home: string): Promise<void> {
   assert(!json.testerBlockedBy.some((entry: any) => entry.key === "delta"), "done developer should not block tester");
   assert(Array.isArray(json.readyForTestTargets), "readyForTestTargets should be present");
   assert(json.integratorBlockedBy.some((entry: any) => entry.role === "tester" && entry.key === "full"), "tester should block integrator");
+  assert(json.canReview === false, "canReview should be false when required self-review is missing");
+  assert(json.canTest === false, "canTest should be false when developer blockers exist");
+  assert(json.canIntegrate === false, "canIntegrate should be false when tester is not done");
+  assert(json.canOwnerCloseout === false, "canOwnerCloseout should be false without tester done");
+  assert(json.blockedReasons.some((reason: any) => reason.gate === "review"), "blockedReasons should explain review artifact blocker");
+  assert(json.blockedReasons.some((reason: any) => reason.gate === "test"), "blockedReasons should explain test blocker");
+  assert(json.blockedReasons.some((reason: any) => reason.gate === "integrate"), "blockedReasons should explain integration blocker");
+  assert(json.requiredArtifacts.some((artifact: any) =>
+    artifact.role === "developer" &&
+    artifact.key === "alpha" &&
+    artifact.type === "dev-report" &&
+    artifact.file === "report-alpha-01.md" &&
+    artifact.requiredFor === "review" &&
+    artifact.missing === false
+  ), "requiredArtifacts should include alpha dev report for review");
+  assert(json.requiredArtifacts.some((artifact: any) =>
+    artifact.role === "developer" &&
+    artifact.key === "alpha" &&
+    artifact.type === "self-review" &&
+    artifact.requiredFor === "review" &&
+    artifact.missing === true
+  ), "requiredArtifacts should flag missing alpha self-review");
+  assert(!json.nextCommandHints.some((hint: any) =>
+    hint.role === "reviewer" &&
+    typeof hint.command === "string" &&
+    hint.command.includes("--role reviewer")
+  ), "nextCommandHints should suppress reviewer command when review artifact is missing");
   assert(typeof json.recommendedNextAction === "string" && json.recommendedNextAction.length < 120, "recommendedNextAction should be short");
   assert(json.idleStations.tester.some((entry: any) => entry.stationName === "legacy"), "legacy task.test should migrate into tester idleStations");
+}
+
+async function testQueryGateArtifacts(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-query-gates-home-"));
+  try {
+    const taskDir = await seedTask(home);
+    let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    delete data[uuid].test;
+    data[uuid].developer = {
+      alpha: {
+        status: "waiting_review",
+        brief: "Alpha work",
+        attempt: 1,
+        blocked_on: null,
+        worktree: "alpha",
+        cwd: "alpha",
+        reports: ["report-alpha-01.md"],
+        review: null,
+        self_review: "self-review-alpha-01.md",
+        review_gate_required: true,
+        error: null,
+      },
+    };
+    data[uuid].tester = {
+      full: {
+        status: "idle",
+        brief: "Run full test",
+        attempt: 0,
+        worktree: "full",
+        cwd: "full",
+        case_document: "",
+        pass: [],
+        fail: [],
+        report: "",
+        error: null,
+      },
+    };
+    data[uuid].integrator = {};
+    data[uuid].owner = {};
+    await writeFile(join(taskDir, "self-review-alpha-01.md"), [
+      "---",
+      "kind: self-review",
+      `uuid: ${uuid}`,
+      "worktree: alpha",
+      "role: developer",
+      "attempt: 1",
+      "created: 2026-05-22T10:00:00+08:00",
+      "source_report: report-alpha-01.md",
+      "reviewer: subagent",
+      "verdict: pass",
+      "---",
+      "",
+      "# Self Review",
+    ].join("\n"), "utf-8");
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const reviewQuery = runScript(home, "query.ts", [uuid.slice(0, 8)]);
+    expectOk(reviewQuery, "query review gate artifacts");
+    let json = parseQueryJson(reviewQuery.stdout);
+    assert(json.canReview === true, "canReview should be true when dev report and self-review are valid");
+    assert(json.nextCommandHints.some((hint: any) => hint.role === "reviewer"), "reviewer hint should exist when review gate is open");
+
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].developer.alpha.self_review = "self-review-alpha-mismatch.md";
+    await writeFile(join(taskDir, "self-review-alpha-mismatch.md"), [
+      "---",
+      "kind: self-review",
+      `uuid: ${uuid}`,
+      "worktree: alpha",
+      "role: developer",
+      "attempt: 1",
+      "created: 2026-05-22T10:00:00+08:00",
+      "source_report: report-other-01.md",
+      "reviewer: subagent",
+      "verdict: pass",
+      "---",
+      "",
+      "# Self Review",
+    ].join("\n"), "utf-8");
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const mismatchQuery = runScript(home, "query.ts", [uuid.slice(0, 8)]);
+    expectOk(mismatchQuery, "query review mismatched artifacts");
+    json = parseQueryJson(mismatchQuery.stdout);
+    assert(json.canReview === false, "canReview should reject mismatched report/self-review references");
+    assert(json.requiredArtifacts.some((artifact: any) =>
+      artifact.role === "developer" &&
+      artifact.key === "alpha" &&
+      artifact.type === "self-review" &&
+      artifact.problem?.includes("source_report")
+    ), "requiredArtifacts should explain mismatched self-review source_report");
+
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].developer.alpha.self_review = "self-review-alpha-01.md";
+    data[uuid].developer.alpha.status = "done";
+    data[uuid].developer.alpha.review_gate_required = false;
+    data[uuid].tester = {};
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const noTesterQuery = runScript(home, "query.ts", [uuid.slice(0, 8)]);
+    expectOk(noTesterQuery, "query integrate without tester");
+    json = parseQueryJson(noTesterQuery.stdout);
+    assert(json.canIntegrate === false, "canIntegrate should be false without tester evidence");
+    assert(json.blockedReasons.some((reason: any) => reason.gate === "integrate"), "blockedReasons should explain missing tester evidence");
+
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].tester = {
+      full: {
+        status: "done",
+        brief: "Run full test",
+        attempt: 1,
+        worktree: "full",
+        cwd: "full",
+        case_document: "test-cases-01.md",
+        pass: ["alpha"],
+        fail: [],
+        report: `~/.kanban/${repo}/${uuid}/test-01.md`,
+        error: null,
+      },
+    };
+    data[uuid].integrator = {
+      merge: {
+        status: "idle",
+        brief: "Merge delivery",
+        attempt: 0,
+        worktree: "merge",
+        cwd: "merge",
+        merged: [],
+        conflicts: [],
+        report: "",
+        error: null,
+      },
+    };
+    await writeFile(join(taskDir, "test-01.md"), [
+      "---",
+      "kind: test-report",
+      `uuid: ${uuid}`,
+      "tester: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:00:00+08:00",
+      "verdict: pass",
+      "---",
+      "",
+      "# Test Report",
+    ].join("\n"), "utf-8");
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const integrateQuery = runScript(home, "query.ts", [uuid.slice(0, 8)]);
+    expectOk(integrateQuery, "query integrate gate artifacts");
+    json = parseQueryJson(integrateQuery.stdout);
+    assert(json.canIntegrate === true, "canIntegrate should be true when tester done and pass report exists");
+    assert(json.nextCommandHints.some((hint: any) => hint.role === "integrator"), "integrator hint should exist when integrate gate is open");
+    assert(json.requiredArtifacts.some((artifact: any) =>
+      artifact.role === "tester" &&
+      artifact.requiredFor === "integrate" &&
+      artifact.file === `~/.kanban/${repo}/${uuid}/test-01.md` &&
+      artifact.valid === true
+    ), "requiredArtifacts should validate kanban-relative tester report paths");
+
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].owner = {
+      main: {
+        status: "working",
+        brief: "Owner main",
+        attempt: 1,
+        worktree: "main",
+        cwd: "main",
+        decisions: [{
+          type: "integrator_required",
+          target: "task",
+          reason: "Need semantic merge",
+          created: "2026-05-22T10:00:00+08:00",
+          evidence: "test-01.md",
+        }],
+        closeout: "",
+        error: null,
+      },
+    };
+    data[uuid].integrator = {};
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const missingIntegratorQuery = runScript(home, "query.ts", [uuid.slice(0, 8)]);
+    expectOk(missingIntegratorQuery, "query owner closeout with missing integrator entry");
+    json = parseQueryJson(missingIntegratorQuery.stdout);
+    assert(json.canOwnerCloseout === false, "owner closeout should wait for owner integrator_required decision without integrator entry");
+    assert(json.blockedReasons.some((reason: any) =>
+      reason.gate === "owner_closeout" &&
+      reason.reason.includes("integrator evidence")
+    ), "blockedReasons should explain owner-required integrator evidence");
+    assert(!json.nextCommandHints.some((hint: any) => hint.role === "owner"), "owner closeout hint should be suppressed while integrator evidence is missing");
+
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].integrator = {
+      merge: {
+        status: "idle",
+        brief: "Merge delivery",
+        attempt: 0,
+        worktree: "merge",
+        cwd: "merge",
+        merged: [],
+        conflicts: [],
+        report: "",
+        error: null,
+      },
+    };
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const closeoutQuery = runScript(home, "query.ts", [uuid.slice(0, 8)]);
+    expectOk(closeoutQuery, "query owner closeout with integrator decision");
+    json = parseQueryJson(closeoutQuery.stdout);
+    assert(json.canOwnerCloseout === false, "owner closeout should wait for active integrator entry");
+    assert(json.blockedReasons.some((reason: any) =>
+      reason.gate === "owner_closeout" &&
+      reason.entries?.some((entry: any) => entry.role === "integrator" && entry.key === "merge")
+    ), "blockedReasons should list active integrator from owner decision");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 }
 
 async function testRoleAlias(home: string): Promise<void> {
@@ -1212,9 +1484,10 @@ async function testStandbyResolve(home: string): Promise<void> {
 async function main() {
   const home = await mkdtemp(join(tmpdir(), "kanban-regression-home-"));
   try {
-    const taskDir = await seedTask(home);
-    await testQueryJson(home);
-    await testRoleAlias(home);
+	    const taskDir = await seedTask(home);
+	    await testQueryJson(home);
+	    await testQueryGateArtifacts();
+	    await testRoleAlias(home);
     await testRoleOwnerRegister();
     await testRoleOwnerRejectsExistingSeats();
     await testTesterCaseDocumentWrite(home);

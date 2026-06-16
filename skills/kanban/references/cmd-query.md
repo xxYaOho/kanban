@@ -124,6 +124,10 @@ bun run $SCRIPTS/query.ts <uuid>
 | `readyForTestTargets` | `developer` 中所有 `ready_for_test` 或 `review_approved` 条目 |
 | `testerBlockedBy` | tester 开工前仍未 `ready_for_test / review_approved / done` 的 developer 条目 |
 | `integratorBlockedBy` | integrator 开工前所有未 `done` 的 developer / tester 前置条目;reviewer 仅在存在 `waiting_review` developer 时阻塞;owner 不阻塞 integrator |
+| `canReview` / `canTest` / `canIntegrate` / `canOwnerCloseout` | 机器可读 gate 判断;供 Agent 承接前先读,不替代角色手册 |
+| `blockedReasons` | gate 不能推进时的结构化原因,包含 `gate` / `reason` / 可选 `entries` |
+| `requiredArtifacts` | 当前 gate 需要的报告文件及是否缺失 |
+| `nextCommandHints` | 可执行下一步的短命令提示;Agent 仍需按角色手册履职 |
 | `recommendedNextAction` | 一句话动作提示，只做引导，不替代角色手册 |
 
 ## 边界情况
