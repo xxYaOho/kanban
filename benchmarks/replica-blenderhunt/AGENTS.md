@@ -42,27 +42,6 @@
 
 不得接入真实支付、真实登录、真实 BlenderHunt API 或真实用户账户。最终应用运行时不得依赖原站。
 
-## Benchmark Task Shape
-
-角色注册、状态流转、report、self-review、tester issue、reviewer gate 和 integrator 升级都交给 `/kanban` 协议处理。本文件只定义 benchmark 项目的产品目标、推荐拆分和输出要求。
-
-推荐 multi-plan 拆分:
-
-- `dev-assets`: 原站参考、截图、公开资源、fixture。
-- `dev-api`: 本地 catalog/product API 或 service contract。
-- `dev-frontend`: 首页、详情页、视觉复刻。
-- `dev-cart`: 购物单状态和交互。
-- `dev-test`: 测试和 smoke harness。
-
-这些名称只是 benchmark 建议。实际是否合并或拆分席位,由本轮 `/kanban` owner 根据流程和成本决定。
-
-每个 developer brief 应明确:
-
-- 输入文档:必须读取 `PRD.md`、`DESIGN.md` 和相关资源。
-- 输出物:代码、资源、fixture、测试或验证记录。
-- 完成标准:能被 tester 从外部行为验证。
-- 时间打点:开始、结束、self-review 和关键 handoff。
-
 ## Timing Requirement
 
 每个关键步骤开始和结束都必须打点。使用本机时间:
@@ -75,18 +54,15 @@ date +%Y-%m-%dT%H:%M:%S%z
 
 - 创建 benchmark run 目录。
 - 创建 `/kanban` thread。
-- 创建 plan 和 multi-plan。
-- 注册 owner/developer/tester。
-- dev-assets 开始和结束资源采集。
-- dev-api 开始和结束本地 API/data contract。
-- dev-frontend 开始和结束页面实现。
-- dev-cart 开始和结束购物单实现。
-- dev-test 开始和结束验证 harness。
-- developer 开始和结束实现。
-- developer self-review 开始和结束。
-- tester 开始和结束验收。
+- 创建 plan。
+- 创建 multi-plan,如果本轮使用 multi-plan。
+- 注册或承接席位。
+- 原站参考资料采集。
+- 产品实现。
+- self-review。
+- 验收。
 - issue loop 开始和结束,如有。
-- owner closeout 开始和结束。
+- closeout。
 - 最终 app smoke 开始和结束。
 
 不要事后凭记忆估算时间。
@@ -127,7 +103,6 @@ runs/<YYYYMMDD_HHMM>-<flow>/
 - 至少一个桌面视口完成截图或 smoke。
 - 购物单状态不是假文本,必须能响应添加、数量修改或移除。
 - 产品数据稳定,不同 run 面对同一组商品和分类。
-- 前后端/API/cart 席位边界清楚,artifact 可回看。
 - result 中写明未完成项和已知限制。
 
 ## Do Not

@@ -74,12 +74,7 @@ The scope is limited to the public buyer experience. Seller tools, authenticatio
 - Use a stable captured product catalog fixture with products, categories, creators, product types, prices, and saved media references.
 - Capture and save design resources from the original public site before implementation. These may include screenshots, public images, typography observations, color tokens, spacing observations, and DOM/content notes.
 - Use application routing or equivalent view state for at least three surfaces: homepage, product detail, and cart.
-- Split implementation across benchmark seats:
-  - `dev-assets`: source capture, reference screenshots, product fixture, media inventory.
-  - `dev-api`: local catalog/product API or service layer.
-  - `dev-frontend`: homepage, product cards, detail page, responsive layout, visual reproduction.
-  - `dev-cart`: cart state, add/update/remove/subtotal, cart UI integration.
-  - `dev-test`: smoke harness, behavior tests, screenshot comparison support.
+- Let the `/kanban` run decide task decomposition. The product naturally contains source capture, local data/API contract, homepage/detail UI, cart state, and verification work, but this PRD does not prescribe seat names or task split.
 - Treat cart behavior as a deep module: product lookup, add item, update quantity, remove item, subtotal, and empty state should be testable without reading UI internals.
 - Treat catalog and product APIs as a bounded module: homepage and detail should consume the same data contract.
 - Treat visual reproduction as a product requirement. The app should consume or mirror the provided token and theme references and the newly captured original-site references.
