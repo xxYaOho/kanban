@@ -2,10 +2,6 @@
 
 ## 2026-06-16
 
-### Development Time
-
-Development time is tracked in `docs/vnext-loop-runtime-development-time.md`.
-
 ### Benchmark Baseline
 
 Created current-flow approval platform baseline:
