@@ -5,9 +5,11 @@ worktree: <worktree-name>
 role: developer
 attempt: 1
 created: <ISO8601>
-status_after: waiting_review
+status_after: ready_for_test
 related_plan: ~/.kanban/<repo>/<uuid>/plan.md
 related_issue: null
+self_review: self-review-<worktree-name>-01.md
+gate_review_required: false
 branch: <git-branch>
 ---
 

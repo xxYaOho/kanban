@@ -20,12 +20,32 @@ Frontmatter:
 - `role: developer`
 - `attempt`
 - `created`
-- `status_after: waiting_review`
+- `status_after: ready_for_test | waiting_review`
 - `related_plan`
 - `related_issue`: 无 issue 时为 `null`;修复 open issue 时必须填 `issue-*.md`
+- `self_review: self-review-<worktree>-<NN>.md`
+- `gate_review_required: true | false`
 - `branch`: 可选,本次对应 git 分支
 
 正文段落:`Summary` / `Changes` / `Tests` / `Notes for Reviewer`。
+
+## self-review
+
+文件:`self-review-<worktree>-<NN>.md`,NN 与同 attempt 的 dev report 一致。
+骨架:`assets/report-skeletons/self-review.md`
+
+Frontmatter:
+- `kind: self-review`
+- `uuid`
+- `worktree`
+- `role: developer`
+- `attempt`
+- `created`
+- `source_report: report-<worktree>-<NN>.md`
+- `verdict: pass | needs_changes`
+- `reviewer: subagent`
+
+正文段落:`Scope` / `Feedback` / `Resolution` / `Final Check`。
 
 ## review
 
@@ -146,6 +166,26 @@ Frontmatter:
 - `regression_result: pass | fail`
 
 正文段落:`Merged Branches` / `Conflict Details` / `Regression Results` / `Integration Branch`。
+
+## owner-closeout
+
+文件:`owner-closeout-<NN>.md`
+骨架:`assets/report-skeletons/owner-closeout.md`
+
+Frontmatter:
+- `kind: owner-closeout`
+- `uuid`
+- `owner`
+- `role: owner`
+- `attempt`
+- `created`
+- `status_after: done`
+- `test_report: test-<NN>.md`
+- `integration_report`: 未启用 integrator 时为 `null`
+- `merged`: 数组
+- `conflicts`: 数组
+
+正文段落:`Summary` / `Merge` / `Verification` / `Cleanup` / `Decision`。
 
 ## error-note
 

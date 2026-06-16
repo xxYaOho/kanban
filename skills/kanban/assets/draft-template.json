@@ -6,6 +6,7 @@
     "draft": "~/path/to/requirements-draft.md",
     "plan": "~/.kanban/<repo>/<uuid>/plan.md",
     "created": "<ISO8601>",
+    "owner": {},
     "developer": {},
     "reviewer": {},
     "tester": {},

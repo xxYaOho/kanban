@@ -191,6 +191,8 @@ async function main() {
           cwd: args.worktree,
           reports: [],
           review: null,
+          self_review: null,
+          review_gate_required: false,
           error: null,
         };
         // Auto-start

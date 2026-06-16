@@ -54,6 +54,25 @@ export function reviewPath(
   return join(waveDir(repo, uuid), `${reportFilePrefixes.reviewer}-${worktree}-${nn}.md`);
 }
 
+export function selfReviewPath(
+  repo: string,
+  uuid: string,
+  worktree: string,
+  attempt: number,
+): string {
+  const nn = String(attempt).padStart(2, "0");
+  return join(waveDir(repo, uuid), `self-review-${worktree}-${nn}.md`);
+}
+
+export function ownerCloseoutPath(
+  repo: string,
+  uuid: string,
+  attempt: number,
+): string {
+  const nn = String(attempt).padStart(2, "0");
+  return join(waveDir(repo, uuid), `${reportFilePrefixes.owner}-${nn}.md`);
+}
+
 export function testPath(
   repo: string,
   uuid: string,

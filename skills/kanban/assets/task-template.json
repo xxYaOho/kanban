@@ -7,6 +7,18 @@
     "plan": "~/.kanban/<repo>/<uuid>/plan.md",
     "created": "<ISO8601>",
     "updated": "<ISO8601>",
+    "owner": {
+      "<name>": {
+        "status": "idle",
+        "brief": "<主线协调、计划和收尾>",
+        "attempt": 0,
+        "worktree": null,
+        "cwd": null,
+        "decisions": [],
+        "closeout": "",
+        "error": null
+      }
+    },
     "developer": {
       "<name>": {
         "status": "idle",
@@ -17,6 +29,8 @@
         "cwd": null,
         "reports": [],
         "review": null,
+        "self_review": null,
+        "review_gate_required": false,
         "error": null
       }
     },

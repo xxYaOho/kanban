@@ -13,9 +13,11 @@ import {
   terminalTaskStatuses,
   testerStatuses,
   reviewerStatuses,
+  ownerStatuses,
   normalizeRole,
   type DeveloperStatus,
   type IntegratorStatus as ProtocolIntegratorStatus,
+  type OwnerStatus as ProtocolOwnerStatus,
   type ReviewerStatus as ProtocolReviewerStatus,
   type Role,
   type TaskStatus as ProtocolTaskStatus,
@@ -25,6 +27,7 @@ import {
 // ---- 新角色类型 ----
 
 export type DevStatus = DeveloperStatus;
+export type OwnerStatus = ProtocolOwnerStatus;
 export type ReviewerStatus = ProtocolReviewerStatus;
 export type TesterStatus = ProtocolTesterStatus;
 export type IntegratorStatus = ProtocolIntegratorStatus;
@@ -38,6 +41,27 @@ export interface DevEntry {
   cwd: string | null;
   reports: string[];
   review: string | null;
+  self_review: string | null;
+  review_gate_required: boolean;
+  error: string | null;
+}
+
+export interface OwnerDecision {
+  type: "reviewer_gate" | "integrator_required";
+  target: string;
+  reason: string;
+  created: string;
+  evidence: string | null;
+}
+
+export interface OwnerEntry {
+  status: OwnerStatus;
+  brief: string;
+  attempt: number;
+  worktree: string | null;
+  cwd: string | null;
+  decisions: OwnerDecision[];
+  closeout: string;
   error: string | null;
 }
 
@@ -85,6 +109,7 @@ export interface Task {
   plan: string;
   created: string;
   updated?: string;
+  owner: Record<string, OwnerEntry>;
   developer: Record<string, DevEntry>;
   reviewer: Record<string, ReviewerEntry>;
   tester: Record<string, TesterEntry>;
@@ -109,6 +134,8 @@ export const VALID_ROLES = roleKeys();
 export const VALID_TASK_STATUSES = taskStatuses;
 
 export const VALID_DEV_STATUSES = developerStatuses;
+
+export const VALID_OWNER_STATUSES = ownerStatuses;
 
 export const VALID_REVIEWER_STATUSES = reviewerStatuses;
 
@@ -183,6 +210,7 @@ function extractReportsArray(val: unknown): string[] {
 }
 
 export function migrateTask(task: Task): void {
+  const owner: Record<string, OwnerEntry> = { ...((task as any).owner ?? {}) };
   const developer: Record<string, DevEntry> = { ...(task.developer ?? {}) };
   const reviewer: Record<string, ReviewerEntry> = { ...(task.reviewer ?? {}) };
   const tester: Record<string, TesterEntry> = {
@@ -206,6 +234,21 @@ export function migrateTask(task: Task): void {
             cwd: wt.cwd ?? null,
             reports: extractReportsArray(wt.report),
             review: wt.review ? extractFilename(String(wt.review)) : null,
+            self_review: null,
+            review_gate_required: false,
+            error: wt.error ?? null,
+          };
+          break;
+        }
+        case "owner": {
+          owner[name] = {
+            status: mapOwnerStatus(wt.status),
+            brief: wt.action ?? wt.brief ?? "",
+            attempt: wt.attempt ?? 0,
+            worktree: wt.cwd ?? null,
+            cwd: wt.cwd ?? null,
+            decisions: [],
+            closeout: extractReportFilename(wt.report),
             error: wt.error ?? null,
           };
           break;
@@ -254,6 +297,23 @@ export function migrateTask(task: Task): void {
     }
   }
 
+  for (const entry of Object.values(developer)) {
+    if (!("self_review" in entry)) {
+      (entry as any).self_review = null;
+    }
+    if (typeof (entry as any).review_gate_required !== "boolean") {
+      (entry as any).review_gate_required = false;
+    }
+  }
+  for (const entry of Object.values(owner)) {
+    if (!Array.isArray((entry as any).decisions)) {
+      (entry as any).decisions = [];
+    }
+    if (typeof (entry as any).closeout !== "string") {
+      (entry as any).closeout = "";
+    }
+  }
+  task.owner = owner;
   task.developer = developer;
   task.reviewer = reviewer;
   for (const entry of Object.values(tester)) {
@@ -265,6 +325,12 @@ export function migrateTask(task: Task): void {
   task.integrator = integrator;
   delete task.test;
   delete task.worktree;
+}
+
+function mapOwnerStatus(old: unknown): OwnerStatus {
+  const s = String(old ?? "idle");
+  if ((VALID_OWNER_STATUSES as readonly string[]).includes(s)) return s as OwnerStatus;
+  return "idle";
 }
 
 function mapDevStatus(old: unknown): DevStatus {

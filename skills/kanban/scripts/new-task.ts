@@ -21,7 +21,7 @@ import { randomUUID } from "crypto";
 import { dirname, resolve } from "path";
 import { withKanbanLock } from "./kanban-lock";
 import { waveDir, toKanbanRel } from "./paths";
-import type { Task, DevEntry, ReviewerEntry, TesterEntry, IntegratorEntry } from "./kanban-io";
+import type { Task, DevEntry, OwnerEntry, ReviewerEntry, TesterEntry, IntegratorEntry } from "./kanban-io";
 import { nowIso } from "./kanban-io";
 import {
   buildMultiPlanIndex,
@@ -74,12 +74,14 @@ function parseArgs(argv: string[]): Args {
 }
 
 function normalizeWorktrees(raw: unknown): {
+  owner: Record<string, Partial<OwnerEntry>>;
   developer: Record<string, Partial<DevEntry>>;
   reviewer: Record<string, Partial<ReviewerEntry>>;
   tester: Record<string, Partial<TesterEntry>>;
   integrator: Record<string, Partial<IntegratorEntry>>;
 } {
   const out = {
+    owner: {} as Record<string, Partial<OwnerEntry>>,
     developer: {} as Record<string, Partial<DevEntry>>,
     reviewer: {} as Record<string, Partial<ReviewerEntry>>,
     tester: {} as Record<string, Partial<TesterEntry>>,
@@ -94,6 +96,18 @@ function normalizeWorktrees(raw: unknown): {
     if (!brief.trim()) continue;
 
     switch (role) {
+      case "owner":
+        out.owner[name] = {
+          status: "idle",
+          brief,
+          attempt: 0,
+          worktree: null,
+          cwd: null,
+          decisions: [],
+          closeout: "",
+          error: null,
+        };
+        break;
       case "developer":
         out.developer[name] = {
           status: "idle",
@@ -104,6 +118,8 @@ function normalizeWorktrees(raw: unknown): {
           cwd: null,
           reports: [],
           review: null,
+          self_review: null,
+          review_gate_required: false,
           error: null,
         };
         break;
@@ -272,6 +288,7 @@ async function main() {
       plan: planPath,
       created: nowIso(),
       developer: worktrees.developer as Record<string, DevEntry>,
+      owner: worktrees.owner as Record<string, OwnerEntry>,
       reviewer: worktrees.reviewer as Record<string, ReviewerEntry>,
       tester: worktrees.tester as Record<string, TesterEntry>,
       integrator: worktrees.integrator as Record<string, IntegratorEntry>,
@@ -294,6 +311,7 @@ async function main() {
       plan: planPath,
       created: nowIso(),
       developer: worktrees.developer as Record<string, DevEntry>,
+      owner: worktrees.owner as Record<string, OwnerEntry>,
       reviewer: worktrees.reviewer as Record<string, ReviewerEntry>,
       tester: worktrees.tester as Record<string, TesterEntry>,
       integrator: worktrees.integrator as Record<string, IntegratorEntry>,

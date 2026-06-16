@@ -5,7 +5,7 @@
  * command boundaries and normalized before touching task data.
  */
 
-export const roles = ["developer", "reviewer", "tester", "integrator"] as const;
+export const roles = ["owner", "developer", "reviewer", "tester", "integrator"] as const;
 export type Role = (typeof roles)[number];
 
 export const roleAliases = {
@@ -79,6 +79,7 @@ export const developerStatuses = [
   "idle",
   "working",
   "follow_issue",
+  "ready_for_test",
   "waiting_review",
   "under_review",
   "review_approved",
@@ -87,6 +88,9 @@ export const developerStatuses = [
   "blocked",
 ] as const;
 export type DeveloperStatus = (typeof developerStatuses)[number];
+
+export const ownerStatuses = ["idle", "working", "waiting", "done", "blocked"] as const;
+export type OwnerStatus = (typeof ownerStatuses)[number];
 
 export const reviewerStatuses = ["idle", "working", "done"] as const;
 export type ReviewerStatus = (typeof reviewerStatuses)[number];
@@ -98,6 +102,7 @@ export const integratorStatuses = ["idle", "working", "done"] as const;
 export type IntegratorStatus = (typeof integratorStatuses)[number];
 
 export const roleStatuses = {
+  owner: ownerStatuses,
   developer: developerStatuses,
   reviewer: reviewerStatuses,
   tester: testerStatuses,
@@ -105,6 +110,7 @@ export const roleStatuses = {
 } as const;
 
 export type AgentStatus =
+  | OwnerStatus
   | DeveloperStatus
   | ReviewerStatus
   | TesterStatus
@@ -114,6 +120,7 @@ export const issueStatuses = ["open", "done", "closed"] as const;
 export type IssueStatus = (typeof issueStatuses)[number];
 
 export const reportTypes = {
+  owner: "owner-closeout",
   developer: "dev-report",
   reviewer: "review",
   tester: "test-report",
@@ -122,6 +129,7 @@ export const reportTypes = {
 export type ReportType = (typeof reportTypes)[Role];
 
 export const reportFilePrefixes = {
+  owner: "owner-closeout",
   developer: "report",
   reviewer: "review",
   tester: "test",
