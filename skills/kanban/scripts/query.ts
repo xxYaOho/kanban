@@ -288,6 +288,11 @@ function formatExpectedProblem(key: string, expected: string, actual: string | u
   return `${key} expected ${expected}, got ${actual ?? "(missing)"}`;
 }
 
+function sameArtifactRef(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  return basename(fromKanbanRel(a)) === basename(fromKanbanRel(b));
+}
+
 function validateArtifact(
   task: Task,
   uuid: string,
@@ -338,11 +343,11 @@ function validateDeveloperReportPair(
     }
   }
 
-  if (reportFm && selfReview && reportFm.self_review !== selfReview) {
+  if (reportFm && selfReview && !sameArtifactRef(reportFm.self_review, selfReview)) {
     reportValidation = { missing: false, valid: false, problem: formatExpectedProblem("self_review", selfReview, reportFm.self_review) };
   }
 
-  if (selfReviewFm && report && selfReviewFm.source_report !== report) {
+  if (selfReviewFm && report && !sameArtifactRef(selfReviewFm.source_report, report)) {
     selfReviewValidation = { missing: false, valid: false, problem: formatExpectedProblem("source_report", report, selfReviewFm.source_report) };
   }
 

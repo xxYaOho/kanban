@@ -300,7 +300,7 @@ async function testQueryGateArtifacts(): Promise<void> {
         cwd: "alpha",
         reports: ["report-alpha-01.md"],
         review: null,
-        self_review: "self-review-alpha-01.md",
+        self_review: `~/.kanban/${repo}/${uuid}/self-review-alpha-01.md`,
         review_gate_required: true,
         error: null,
       },
@@ -498,6 +498,128 @@ async function testQueryGateArtifacts(): Promise<void> {
       reason.gate === "owner_closeout" &&
       reason.entries?.some((entry: any) => entry.role === "integrator" && entry.key === "merge")
     ), "blockedReasons should list active integrator from owner decision");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+async function testDoctorScript(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-doctor-home-"));
+  try {
+    const taskDir = await seedTask(home);
+    let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    delete data[uuid].test;
+    data[uuid].developer = {
+      alpha: {
+        status: "ready_for_test",
+        brief: "Alpha work",
+        attempt: 1,
+        blocked_on: null,
+        worktree: "alpha",
+        cwd: "alpha",
+        reports: ["report-alpha-01.md"],
+        review: null,
+        self_review: `~/.kanban/${repo}/${uuid}/self-review-alpha-01.md`,
+        review_gate_required: false,
+        error: null,
+      },
+    };
+    data[uuid].tester = {
+      full: {
+        status: "done",
+        brief: "Run full test",
+        attempt: 1,
+        worktree: "full",
+        cwd: "full",
+        case_document: "test-cases-01.md",
+        pass: ["alpha"],
+        fail: [],
+        report: join(taskDir, "test-01.md"),
+        error: null,
+      },
+    };
+    data[uuid].integrator = {};
+    data[uuid].owner = {};
+    await writeFile(join(taskDir, "self-review-alpha-01.md"), [
+      "---",
+      "kind: self-review",
+      `uuid: ${uuid}`,
+      "worktree: alpha",
+      "role: developer",
+      "attempt: 1",
+      "created: 2026-05-22T10:00:00+08:00",
+      "source_report: report-alpha-01.md",
+      "reviewer: subagent",
+      "verdict: pass",
+      "---",
+      "",
+      "# Self Review",
+    ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "test-01.md"), [
+      "---",
+      "kind: test-report",
+      `uuid: ${uuid}`,
+      "tester: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:00:00+08:00",
+      "verdict: pass",
+      "---",
+      "",
+      "# Test Report",
+    ].join("\n"), "utf-8");
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const healthy = runScript(home, "doctor.ts", [uuid.slice(0, 8)]);
+    expectOk(healthy, "doctor healthy");
+    let json = parseJson(healthy.stdout);
+    assert(json.ok === true, "doctor should pass healthy task");
+    assert(json.issueCount === 0, "doctor healthy task should have no issues");
+
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].developer.alpha.self_review = "self-review-alpha-bad.md";
+    data[uuid].owner = {
+      main: {
+        status: "working",
+        brief: "Owner main",
+        attempt: 1,
+        worktree: "main",
+        cwd: "main",
+        decisions: [{
+          type: "integrator_required",
+          target: "task",
+          reason: "Need integration",
+          created: "2026-05-22T10:00:00+08:00",
+          evidence: "test-01.md",
+        }],
+        closeout: "",
+        error: null,
+      },
+    };
+    await writeFile(join(taskDir, "self-review-alpha-bad.md"), [
+      "---",
+      "kind: self-review",
+      `uuid: ${uuid}`,
+      "worktree: alpha",
+      "role: developer",
+      "attempt: 2",
+      "created: 2026-05-22T10:00:00+08:00",
+      "source_report: report-other-01.md",
+      "reviewer: subagent",
+      "verdict: pass",
+      "---",
+      "",
+      "# Self Review",
+    ].join("\n"), "utf-8");
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const broken = runScript(home, "doctor.ts", [uuid.slice(0, 8)]);
+    assert(broken.exitCode === 1, "doctor should fail invalid task");
+    json = parseJson(broken.stdout);
+    assert(json.ok === false, "doctor invalid task should not be ok");
+    assert(json.issues.some((issue: any) => issue.code === "developer_self_review_pair_mismatch"), "doctor should catch self-review source mismatch");
+    assert(json.issues.some((issue: any) => issue.code === "developer_artifact_attempt_mismatch"), "doctor should catch attempt mismatch");
+    assert(json.issues.some((issue: any) => issue.code === "owner_integrator_required_unresolved"), "doctor should catch unresolved integrator_required decision");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -1487,6 +1609,7 @@ async function main() {
 	    const taskDir = await seedTask(home);
 	    await testQueryJson(home);
 	    await testQueryGateArtifacts();
+	    await testDoctorScript();
 	    await testRoleAlias(home);
     await testRoleOwnerRegister();
     await testRoleOwnerRejectsExistingSeats();
