@@ -1,6 +1,6 @@
 # Replica BlenderHunt Benchmark Instructions
 
-本目录是 `/kanban` benchmark 的主测试项目。目标不是维护真实 BlenderHunt,而是在每次 benchmark 中按同一份 PRD 做 1:1 复刻,交付一个可运行的 marketplace 前台体验,用来比较不同 `/kanban` 流程的效率和交付质量。
+本目录是 `/kanban` benchmark 的主测试项目。目标不是维护真实 BlenderHunt,而是在每次 benchmark 中按同一份 PRD 做一比一复刻,交付一个可运行的 marketplace 前台体验,用来比较不同 `/kanban` 流程的效率和交付质量。
 
 ## Source Of Truth
 
@@ -15,12 +15,12 @@
 
 ## Benchmark Goal
 
-每次运行都交付一个可观察、可运行、可比较的 BlenderHunt 1:1 复刻版本。
+每次运行都交付一个可观察、可运行、可比较的 BlenderHunt 一比一复刻版本。
 
 必须覆盖:
 
-- 首页 1:1 复刻。
-- 商品详情页 1:1 复刻。
+- 首页一比一复刻。
+- 商品详情页一比一复刻。
 - 添加购物单流程。
 - 购物单状态查看和修改。
 - 原站设计资源采集和保存。
@@ -29,7 +29,7 @@
 
 ## Product Scope
 
-实现一个前台 marketplace replica,不是后台管理系统。设计资源可以从原站公共页面获取,但代码必须由 benchmark agent 自己完成。
+实现一个前台 marketplace 一比一复刻,不是后台管理系统。设计资源可以从原站公共页面获取,但代码必须由 benchmark agent 自己完成。
 
 必须保留 BlenderHunt 的核心产品信号:
 
@@ -42,86 +42,26 @@
 
 不得接入真实支付、真实登录、真实 BlenderHunt API 或真实用户账户。最终应用运行时不得依赖原站。
 
-## Agent Responsibilities
+## Benchmark Task Shape
 
-### Owner
+角色注册、状态流转、report、self-review、tester issue、reviewer gate 和 integrator 升级都交给 `/kanban` 协议处理。本文件只定义 benchmark 项目的产品目标、推荐拆分和输出要求。
 
-- 创建 thread 和 multi-plan。
-- 分配 developer/tester 席位,默认至少创建:
-  - `dev-assets`: 原站参考、截图、公开资源、fixture。
-  - `dev-api`: 本地 catalog/product API 或 service contract。
-  - `dev-frontend`: 首页、详情页、视觉复刻。
-  - `dev-cart`: 购物单状态和交互。
-  - `dev-test`: 测试和 smoke harness。
-- 确认每个席位都读取 PRD 和 DESIGN。
-- 记录 benchmark run 的开始和结束时间。
-- 收尾时复制 app、kanban artifact、验证证据和截图。
-- 填写最终 result。
+推荐 multi-plan 拆分:
 
-### Developer
+- `dev-assets`: 原站参考、截图、公开资源、fixture。
+- `dev-api`: 本地 catalog/product API 或 service contract。
+- `dev-frontend`: 首页、详情页、视觉复刻。
+- `dev-cart`: 购物单状态和交互。
+- `dev-test`: 测试和 smoke harness。
 
-- 按 PRD 实现产品行为,不要只做静态截图。
-- 每次 attempt 必须记录开始和结束时间。
-- 完成后写 dev report 和 self-review。
-- self-review 必须说明视觉还原、核心交互、购物单状态和验证结果。
-- 不得把未实现的交互写成已完成。
+这些名称只是 benchmark 建议。实际是否合并或拆分席位,由本轮 `/kanban` owner 根据流程和成本决定。
 
-### Dev Assets
+每个 developer brief 应明确:
 
-- 访问原站公共页面并保存参考资料。
-- 至少保存首页、一个详情页和购物单相关路径的截图或页面观察记录。
-- 建立稳定 fixture: products、categories、creators、prices、media。
-- 资源可以来自原站公共可访问内容,但必须落盘到本 run artifact。
-- 不得要求最终 app 在运行时访问原站。
-
-### Dev API
-
-- 建立本地 catalog/product data contract。
-- 提供 product list、product detail、category/filter 所需数据。
-- 处理 missing product、empty list 等边界。
-- 与 frontend/cart 使用同一份稳定 fixture。
-
-### Dev Frontend
-
-- 实现首页和详情页。
-- 尽量 1:1 对齐原站布局、密度、色彩、字体、CTA、商品卡和信息层级。
-- 使用 `DESIGN.md`、`token.css`、`theme.css` 和 dev-assets 捕获资料。
-- 不得把 generic marketplace UI 当成复刻结果。
-
-### Dev Cart
-
-- 实现添加购物单、购物单查看、数量修改、移除、subtotal/total。
-- 同一商品重复添加时必须更新已有 cart line。
-- checkout 可以是 disabled/simulated,但状态和文案必须清楚。
-
-### Dev Test
-
-- 建立可重复 smoke 或自动化验证。
-- 覆盖首页、详情页、添加购物单、数量修改、移除、空购物单。
-- 保存测试输出和浏览器截图。
-
-### Tester
-
-- 只按外部行为验收,不按实现细节验收。
-- 至少验证首页、详情页、添加购物单、购物单修改和空状态。
-- 对比原站截图和 replica 截图,检查 1:1 复刻程度。
-- 保存验证命令、浏览器路径、截图或 smoke 记录。
-- 发现问题时写 issue,不要只在对话里说明。
-
-### Reviewer
-
-Reviewer 只在流程要求或 owner 指定时使用。审查重点:
-
-- 是否偏离 PRD。
-- 是否误把视觉 token 当完整产品。
-- 是否达不到 1:1 复刻要求。
-- 是否缺少可运行入口。
-- 是否缺少购物单状态或详情页路径。
-- 是否存在明显视觉/交互断裂。
-
-### Integrator
-
-Integrator 只在多 developer 合并复杂、冲突需要语义判断或 owner 明确升级时使用。
+- 输入文档:必须读取 `PRD.md`、`DESIGN.md` 和相关资源。
+- 输出物:代码、资源、fixture、测试或验证记录。
+- 完成标准:能被 tester 从外部行为验证。
+- 时间打点:开始、结束、self-review 和关键 handoff。
 
 ## Timing Requirement
 
@@ -182,7 +122,7 @@ runs/<YYYYMMDD_HHMM>-<flow>/
 一个 run 只有在以下条件满足时才算可比较:
 
 - 首页、详情页、购物单流程都可操作。
-- 首页和详情页有原站/replica 对比截图。
+- 首页和详情页有原站/复刻结果对比截图。
 - 应用能从记录的命令启动。
 - 至少一个桌面视口完成截图或 smoke。
 - 购物单状态不是假文本,必须能响应添加、数量修改或移除。

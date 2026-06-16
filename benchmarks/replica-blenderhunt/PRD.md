@@ -1,20 +1,20 @@
-# PRD: 1:1 Replica BlenderHunt Marketplace
+# PRD: One-To-One BlenderHunt Marketplace Reproduction
 
 ## Problem Statement
 
 We need a stable benchmark product that can measure `/kanban` workflow efficiency and delivery quality across repeated runs. The previous approval-platform benchmark was too small and too abstract. It did not expose enough product, visual, and interaction complexity to reveal whether vNext improves real agent collaboration.
 
-Replica BlenderHunt provides a better benchmark because it combines marketplace information architecture, 1:1 visual replication, product detail browsing, API/data modeling, and cart state. Each run should build the same product from the same requirements, record process timing, and leave a runnable artifact for review.
+Replica BlenderHunt provides a better benchmark because it combines marketplace information architecture, one-to-one visual reproduction, product detail browsing, API/data modeling, and cart state. Each run should build the same product from the same requirements, record process timing, and leave a runnable artifact for review.
 
 ## Solution
 
-Build a runnable 1:1 replica of BlenderHunt's public marketplace experience. The product should reproduce the visible public shopping path: homepage, product detail, and add-to-cart flow with cart state.
+Build a runnable one-to-one reproduction of BlenderHunt's public marketplace experience. The product should reproduce the visible public shopping path: homepage, product detail, and add-to-cart flow with cart state.
 
-The replica must be a real implementation, not a screenshot or static mockup. Users should be able to browse products, open details, add products to a cart, adjust the cart, and inspect enough product information to understand the purchase decision. The implementation may use local APIs, fixture data, and local state. It must not call real BlenderHunt APIs, real payment providers, or real user accounts at runtime.
+The reproduction must be a real implementation, not a screenshot or static mockup. Users should be able to browse products, open details, add products to a cart, adjust the cart, and inspect enough product information to understand the purchase decision. The implementation may use local APIs, fixture data, and local state. It must not call real BlenderHunt APIs, real payment providers, or real user accounts at runtime.
 
 Design resources may be collected from the public original site during the benchmark setup phase. Assets, screenshots, layout observations, product metadata, and visual references must be saved into the run artifact. Code must be written by the benchmark agents. The final app must run from local files and local code without depending on the original site.
 
-The visual target is 1:1 practical replication of the observed site: black terminal-like surfaces, orange signal accents, compact marketplace density, system-style labels, real product imagery where captured, and matching page composition for the selected scope.
+The visual target is one-to-one practical reproduction of the observed site: black terminal-like surfaces, orange signal accents, compact marketplace density, system-style labels, real product imagery where captured, and matching page composition for the selected scope.
 
 ## Benchmark Scope
 
@@ -32,7 +32,7 @@ The scope is limited to the public buyer experience. Seller tools, authenticatio
 
 ## User Stories
 
-1. As a marketplace visitor, I want to see a homepage that closely matches the original BlenderHunt homepage, so that the benchmark can evaluate real visual replication quality.
+1. As a marketplace visitor, I want to see a homepage that reproduces the original BlenderHunt homepage, so that the benchmark can evaluate real visual reproduction quality.
 2. As a marketplace visitor, I want to see navigation matching the original public site structure, so that I can move between the homepage, product browsing, detail, and cart.
 3. As a marketplace visitor, I want to see a live marketplace feed, so that the page feels active and commerce-oriented.
 4. As a marketplace visitor, I want to see product categories, so that I can understand the range of assets.
@@ -60,11 +60,11 @@ The scope is limited to the public buyer experience. Seller tools, authenticatio
 26. As a tester, I want stable fixture data and saved visual references, so that different benchmark runs are comparable.
 27. As a tester, I want a documented start command, so that I can run the app from the artifact without guessing.
 28. As a tester, I want a documented smoke path, so that I can verify homepage, detail, and cart behavior consistently.
-29. As a tester, I want side-by-side screenshots of original and replica, so that 1:1 replication can be assessed.
+29. As a tester, I want side-by-side screenshots of original and reproduction, so that one-to-one reproduction can be assessed.
 30. As an owner, I want final screenshots and verification output, so that I can compare quality across runs.
 31. As an owner, I want known limitations recorded, so that incomplete product areas are not hidden.
 32. As a developer, I want clear product scope, so that I do not spend benchmark time building unrelated backend or authentication features.
-33. As a developer, I want clear visual requirements, so that the result is judged as a BlenderHunt replica rather than a generic shop.
+33. As a developer, I want clear visual requirements, so that the result is judged as a BlenderHunt reproduction rather than a generic shop.
 34. As a developer, I want clear cart behavior, so that the core interaction can be implemented and tested in isolation.
 35. As a reviewer, I want product requirements separated from benchmark process rules, so that I can judge implementation against product scope.
 
@@ -77,12 +77,12 @@ The scope is limited to the public buyer experience. Seller tools, authenticatio
 - Split implementation across benchmark seats:
   - `dev-assets`: source capture, reference screenshots, product fixture, media inventory.
   - `dev-api`: local catalog/product API or service layer.
-  - `dev-frontend`: homepage, product cards, detail page, responsive layout, visual replication.
+  - `dev-frontend`: homepage, product cards, detail page, responsive layout, visual reproduction.
   - `dev-cart`: cart state, add/update/remove/subtotal, cart UI integration.
   - `dev-test`: smoke harness, behavior tests, screenshot comparison support.
 - Treat cart behavior as a deep module: product lookup, add item, update quantity, remove item, subtotal, and empty state should be testable without reading UI internals.
 - Treat catalog and product APIs as a bounded module: homepage and detail should consume the same data contract.
-- Treat visual replication as a product requirement. The app should consume or mirror the provided token and theme references and the newly captured original-site references.
+- Treat visual reproduction as a product requirement. The app should consume or mirror the provided token and theme references and the newly captured original-site references.
 - Keep checkout as a disabled or simulated pre-checkout state. Do not implement payment.
 - Store cart state locally in memory or browser storage. It only needs to persist within the benchmark app session unless the implementation chooses local persistence.
 - Product detail pages should be generated from the same catalog data used by the homepage.
@@ -97,7 +97,7 @@ The scope is limited to the public buyer experience. Seller tools, authenticatio
 - Cart logic should be tested directly: adding an item, adding the same item again, updating quantity, removing an item, subtotal calculation, and empty cart state.
 - Catalog behavior should be tested through visible results: filtering by category and searching by text should update product visibility.
 - Routing or navigation should be smoke-tested: homepage to detail, detail to cart, and cart back to browsing.
-- UI verification should include side-by-side original and replica screenshots for the homepage, detail page, and cart flow.
+- UI verification should include side-by-side original and reproduction screenshots for the homepage, detail page, and cart flow.
 - Visual tests do not need automated pixel-perfect comparison, but the tester must check that page composition, color, typography, density, and core components closely match the captured reference.
 - A good benchmark test record includes the command run, the observed result, and the saved evidence location.
 
@@ -123,5 +123,5 @@ The scope is limited to the public buyer experience. Seller tools, authenticatio
 
 - Public BlenderHunt references observed during PRD creation include the homepage positioning as an indie marketplace for Blender artists, a dark terminal-style marketplace feed, 19 indexed assets, creator revenue messaging, product categories, product list entries, and pricing cues.
 - The benchmark should compare process efficiency and product quality, not prove legal or production readiness.
-- The replica should avoid runtime dependence on live network content. Screenshots, fixture data, and local images are acceptable as benchmark assets when they are checked into the run artifact.
+- The reproduction should avoid runtime dependence on live network content. Screenshots, fixture data, and local images are acceptable as benchmark assets when they are checked into the run artifact.
 - The final result must be runnable and reviewable after the conversation ends.
