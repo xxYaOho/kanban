@@ -23,9 +23,9 @@
 2. `$ARGUMENTS` 或对话中有 `@file` / 路径字符串 → 文件导入:
    - 读取文件内容作为 plan
    - 进入预分配席位分析
-3. 当前对话中有 plan mode 产出的 plan 文件(如 `~/.claude/plans/*.md`) → plan 引用:
+3. 当前对话中有 plan mode 产出的 plan 文件(如 `~/.claude/plans/*.md`) → plan 导入:
    - 脚本传 `--plan-ref` 指向原始文件
-   - 不拷贝内容,`plan` 字段存原始路径
+   - 脚本复制内容到 thread 目录的 `plan.md`;`plan` 字段写 `~/.kanban/<repo>/<uuid>/plan.md`
    - `status=planned`
    - 进入预分配席位分析
 4. 当前对话中有足够计划内容 → 对话抽取:
@@ -54,19 +54,19 @@
 
 | 来源 | `status` | `plan` | `worktree` |
 |------|----------|--------|------------|
-| plan 引用 | `planned` | `--plan-ref` 引用原始路径 | 按对话划分填充 |
-| 对话抽取 | `planned` | 从对话整理出的完整 plan | 按对话划分填充 |
-| 文件导入 | `planned` 或 `draft` | 拷贝自引用文件 | 尝试解析,失败则空 |
+| plan 导入 | `planned` | 复制为 thread `plan.md` | 按对话划分填充 |
+| 对话抽取 | `planned` | 写入 thread `plan.md` | 按对话划分填充 |
+| 文件导入 | `planned` 或 `draft` | 复制为 thread `plan.md` | 尝试解析,失败则空 |
 | 空白看板 | `draft` | 占位 `# desc\n\n(待完善)` | `{}` |
 | multi-plan 索引草案 | `draft` | 索引式主 `plan.md`,暂不含实际子计划 | `{}` |
 
-文件导入必须把文件拷贝进 `~/.kanban/.../plan.md`,不保留软链接。原文件不动,kanban 目录必须自足。
+除空白看板外,所有 plan 文件来源都必须落到 thread 目录的 `plan.md`,不保留软链接。原文件不动,kanban 目录必须自足。
 
 索引式 multi-plan 合同:
 
-- 导入的 `plan.md` 含同目录相对链接 `./plan-*.md`,或主计划明确标记 `multi-plan`,即视为索引式计划结构。
+- 导入或复制的 `plan.md` 含同目录相对链接 `./plan-*.md`,或主计划明确标记 `multi-plan`,即视为索引式计划结构。
 - thread 目录中的 `plan.md` 与同层 `plan-*.md` 是运行时真源。
-- 脚本复制主计划时同步复制同目录一层 `plan-*.md` 到任务目录。
+- 脚本复制主计划时同步复制源文件同目录一层被链接的 `plan-*.md` 到任务目录。
 - 链接指向的子计划不存在时先报错,不得创建半残任务。
 - 不递归复制其他 Markdown 链接。
 
@@ -118,21 +118,7 @@ C3 是唯一允许有条件通过的项。当 plan 明确描述 Phase 1 → Phas
 
 `blocked_on` 的值必须是同任务中另一个 developer 条目的名称。`new-task.ts` 写入前校验目标存在、无自引用、无环形依赖。
 
-示例:
-
-```json
-{
-  "dev-parser": {
-    "role": "developer",
-    "brief": "重构命令解析器（Phase 1，对应 plan-parser.md）"
-  },
-  "dev-rbac": {
-    "role": "developer",
-    "brief": "实现 RBAC 中间件（Phase 2，对应 plan-rbac.md）",
-    "blocked_on": "dev-parser"
-  }
-}
-```
+`--worktrees-json` 示例形态:`{"dev-parser":{"role":"developer","brief":"对应 plan-parser.md"},"dev-rbac":{"role":"developer","brief":"对应 plan-rbac.md","blocked_on":"dev-parser"}}`。
 
 空白看板(`status=draft`)跳过席位分析。`worktree` 为 `{}`,用户后续通过 `--update` 完善。
 
@@ -153,7 +139,7 @@ bun run $SCRIPTS/new-task.ts \
 
 `--worktrees-json` 中 developer 条目可含 `blocked_on` 字段,值必须是同任务其他 developer 名称。脚本自动校验目标存在、无自引用、无环形依赖;失败则拒绝写入。
 
-fromFile 模式若识别到索引式 multi-plan,stdout JSON 包含 `subPlans: ["~/.kanban/.../plan-a.md", ...]`。`--multi-plan --mode blank` 创建 `draft` 索引草案,stdout 的 `isMultiPlan` 为 `true`。
+fromFile / plan-ref 模式若识别到索引式 multi-plan,stdout JSON 包含 `subPlans: ["~/.kanban/.../plan-a.md", ...]`。`--multi-plan --mode blank` 创建 `draft` 索引草案,stdout 的 `isMultiPlan` 为 `true`。
 
 ## 汇报模板
 

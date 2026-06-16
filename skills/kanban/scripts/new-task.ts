@@ -8,7 +8,7 @@
  *   --description <desc>
  *   --plan-content-file <path>   extract 模式
  *   --plan-file <path>           fromFile 模式
- *   --plan-ref <path>            引用已有 plan 文件
+ *   --plan-ref <path>            导入已有 plan 文件
  *   --draft-ref <path>           可选:原始需求草稿路径
  *   --worktrees-json <json>      可选:role 条目字典 JSON
  *   --multi-plan                 可选:创建可渐进扩展的 multi-plan 索引草案
@@ -69,6 +69,9 @@ function parseArgs(argv: string[]): Args {
   }
   if (!a.mode || !a.repo || !a.description) {
     throw new Error("缺参: --mode --repo --description 都是必填");
+  }
+  if (a.mode === "blank" && a.planRef) {
+    throw new Error("--plan-ref 不能与 --mode blank 同时使用");
   }
   return a as Args;
 }
@@ -240,11 +243,13 @@ async function main() {
   let isMultiPlan = Boolean(args.multiPlan);
 
   if (args.planRef) {
-    const ref = resolve(args.planRef).replace(/^\/Users\/[^/]+/, "~");
     if (!existsSync(resolve(args.planRef))) throw new Error(`--plan-ref 不存在: ${args.planRef}`);
-    const content = await readFile(resolve(args.planRef), "utf-8");
+    const src = resolve(args.planRef);
+    const content = await readFile(src, "utf-8");
     isMultiPlan = isMultiPlan || isMultiPlanContent(content);
-    planPath = ref;
+    await copyFile(src, planTarget);
+    copiedSubPlans = await copyLinkedSubPlans(src, dir);
+    planPath = toKanbanRel(planTarget);
   } else {
     if (args.mode === "fromFile") {
       if (!args.planFile) throw new Error("fromFile 模式必须传 --plan-file");
@@ -326,7 +331,7 @@ async function main() {
         uuid,
         short,
         dir,
-        planTarget: args.planRef ? planPath : toKanbanRel(planTarget),
+        planTarget: toKanbanRel(planTarget),
         subPlans: copiedSubPlans.map((p) => toKanbanRel(p.target)),
         isMultiPlan,
         status,

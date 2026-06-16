@@ -625,6 +625,70 @@ async function testDoctorScript(): Promise<void> {
   }
 }
 
+async function testNewTaskPlanRefCopiesPlanAndSubPlans(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-new-plan-ref-home-"));
+  const sourceDir = await mkdtemp(join(tmpdir(), "kanban-new-plan-ref-src-"));
+  try {
+    await mkdir(join(home, ".kanban"), { recursive: true });
+    await writeFile(join(home, ".kanban", "kanban.json"), "{}\n", "utf-8");
+    const sourcePlan = join(sourceDir, "source-plan.md");
+    const sourceSubPlan = join(sourceDir, "plan-ui.md");
+    await writeFile(sourcePlan, [
+      "# Imported multi plan",
+      "",
+      "multi-plan",
+      "",
+      "- [UI](./plan-ui.md)",
+      "",
+    ].join("\n"), "utf-8");
+    await writeFile(sourceSubPlan, "# UI sub plan\n", "utf-8");
+
+    const result = runScript(home, "new-task.ts", [
+      "--mode",
+      "extract",
+      "--repo",
+      repo,
+      "--description",
+      "Imported multi plan",
+      "--plan-ref",
+      sourcePlan,
+      "--worktrees-json",
+      JSON.stringify({
+        "dev-ui": {
+          role: "developer",
+          brief: "Implement UI from plan-ui.md",
+        },
+      }),
+    ]);
+    expectOk(result, "new-task plan-ref import");
+    const json = parseJson(result.stdout);
+    assert(json.status === "planned", "plan-ref with sub plan and role should be planned");
+    assert(json.planTarget.endsWith("/plan.md"), "plan-ref output should point at thread plan.md");
+    assert(json.subPlans.some((path: string) => path.endsWith("/plan-ui.md")), "plan-ref import should copy linked sub plans");
+
+    const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[json.uuid].plan.endsWith("/plan.md"), "kanban plan field should point at thread plan.md");
+    assert(existsSync(join(home, ".kanban", repo, json.uuid, "plan.md")), "thread plan.md should exist");
+    assert(existsSync(join(home, ".kanban", repo, json.uuid, "plan-ui.md")), "linked sibling plan should be copied");
+
+    const conflict = runScript(home, "new-task.ts", [
+      "--mode",
+      "blank",
+      "--repo",
+      repo,
+      "--description",
+      "Invalid plan ref",
+      "--plan-ref",
+      sourcePlan,
+    ]);
+    assert(conflict.exitCode !== 0, "new-task should reject --mode blank with --plan-ref");
+    assert(conflict.stderr.includes("--plan-ref 不能与 --mode blank 同时使用"), "conflict error should explain invalid plan-ref blank mode");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+    await rm(sourceDir, { recursive: true, force: true });
+  }
+}
+
 async function testRoleAlias(home: string): Promise<void> {
   const result = runScript(home, "role.ts", [
     "--role",
@@ -1610,6 +1674,7 @@ async function main() {
 	    await testQueryJson(home);
 	    await testQueryGateArtifacts();
 	    await testDoctorScript();
+	    await testNewTaskPlanRefCopiesPlanAndSubPlans();
 	    await testRoleAlias(home);
     await testRoleOwnerRegister();
     await testRoleOwnerRejectsExistingSeats();
