@@ -26,9 +26,9 @@ enter(cwd = <tester-worktree>)
 ## 测试过程
 
 1. **检查测试用例文档**:若 `tester.<name>.case_document` 为空,先写 `test-cases-<NN>.md` 并用 `agent-write.ts --set case_document=test-cases-<NN>.md` 记录
-2. **设计/修订测试用例**:初版基于 plan / brief;developer 提交后,根据 dev report、review report 和 open issue 补充或调整
+2. **设计/修订测试用例**:初版基于 plan / brief;developer 提交后,根据 dev report、open issue,以及存在 reviewer gate / `developer.review` 时的 review report 补充或调整
 3. **提交 Human review**:Human review 的对象是用例设计是否覆盖真实验收意图,不是逐条判定测试结果
-4. **合并分支**:在 tester worktree 里 merge / rebase 需要验证的 developer 分支,解决冲突(冲突大时创建 issue 或反向提 review 回绝,并说明)
+4. **合并分支**:在 tester worktree 里 merge / rebase 需要验证的 developer 分支,解决冲突(冲突大时创建 issue,或请 owner 升级 reviewer gate,并说明)
 5. **跑测试套件**:项目级测试脚本 + 手工验证关键路径
 6. **覆盖三个层面**:
    - 自动化测试(unit + integration + e2e 按项目有什么跑什么)
@@ -37,7 +37,7 @@ enter(cwd = <tester-worktree>)
 
 ## 履职原则
 
-Tester 在执行测试前,必须先读 plan、dev report、review report 和 open issue。
+Tester 在执行测试前,必须先读 plan、dev report 和 open issue;只有存在 reviewer gate 或 `developer.review` 时,才读取对应 review report。
 先设计测试用例,再执行测试;不能只按最终目标随手 smoke。
 测试用例必须覆盖 plan 目标、关键路径、失败路径、集成边界和主要回归风险。
 测试用例设计需要提交 Human review;未记录 review 状态时只可准备和预跑,不得给出最终 pass。

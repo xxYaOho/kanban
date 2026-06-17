@@ -115,10 +115,12 @@ diff 至少展示字段前后值和新增/删除条目:
 ```bash
 /kanban --update 019d9b9f description="CLI v0.14 优化" status=planned
 /kanban --update 019d9b9f developer.dev-serve.brief="重构命令解析器"
-/kanban --update 019d9b9f add:reviewer:review:'{"brief":"统一 review"}'
 /kanban --update 019d9b9f add:developer:plan-export:'{"brief":"实现 plan-export 子计划","blocked_on":"dev-core"}'
+/kanban --update 019d9b9f add:tester:tester-main:'{"brief":"集成验证"}'
 /kanban --update 019d9b9f del:developer:obsolete
 ```
+
+reviewer 不作为默认拆分项。只有 owner 决定需要独立 gate 时,才添加 reviewer 席位或执行 `owner.request-reviewer-gate`。
 
 Agent 将用户快捷形态翻译为脚本 op:
 

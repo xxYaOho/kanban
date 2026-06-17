@@ -164,7 +164,7 @@ Plan:   ~/.kanban/wave/019d9b9f.../plan.md
 Worktrees:
   - dev-parser  (developer)  重构命令解析器
   - dev-rbac    (developer)  实现 RBAC 中间件（阻塞于 dev-parser）
-  - review      (reviewer)   统一 review
+  - tester-main (tester)     集成验证
 Blocked-on chain: dev-rbac → dev-parser
 下一步:在对应 worktree 内启动 Claude 即自动进入角色。
 ```

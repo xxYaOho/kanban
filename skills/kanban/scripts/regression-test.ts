@@ -752,8 +752,8 @@ async function testDoctorCollaborationWarnings(): Promise<void> {
     const json = parseJson(result.stdout);
     assert(json.ok === true, "doctor warnings should not fail ok");
     assert(json.errorCount === 0, "doctor warnings should not count as errors");
-    assert(json.warningCount === 2, "doctor should report collaboration warnings");
-    assert(json.issues.some((issue: any) => issue.code === "reviewer_without_gate"), "doctor should warn about reviewer without gate");
+    assert(json.warningCount === 1, "doctor should report collaboration warnings");
+    assert(!json.issues.some((issue: any) => issue.code === "reviewer_without_gate"), "doctor should not warn about idle optional reviewer");
     assert(json.issues.some((issue: any) => issue.code === "blocked_on_satisfied"), "doctor should warn about satisfied blocked_on");
   } finally {
     await rm(home, { recursive: true, force: true });

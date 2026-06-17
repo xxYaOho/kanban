@@ -168,20 +168,6 @@ function validateOwnerCloseout(issues: DoctorIssue[], task: Task, uuid: string):
 }
 
 function validateCollaborationHints(issues: DoctorIssue[], task: Task, uuid: string): void {
-  const hasReviewer = Object.keys(task.reviewer ?? {}).length > 0;
-  const reviewGateTargets = Object.entries(task.developer ?? {})
-    .filter(([, entry]) => entry.review_gate_required || entry.status === "waiting_review")
-    .map(([key]) => key);
-  if (hasReviewer && reviewGateTargets.length === 0 && Object.keys(task.developer ?? {}).length > 0) {
-    issues.push({
-      severity: "warning",
-      code: "reviewer_without_gate",
-      thread: uuid,
-      path: "reviewer",
-      message: "reviewer entries exist but no developer is marked review_gate_required or waiting_review",
-    });
-  }
-
   for (const [key, entry] of Object.entries(task.developer ?? {})) {
     const blockedOn = entry.blocked_on;
     if (!blockedOn) continue;
