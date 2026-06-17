@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "case": "replica-blenderhunt",
+  "run_id": "YYYYMMDD_HHMM-flow-name",
+  "kanban_version": "v0.2.0",
+  "started_at": "YYYY-MM-DDTHH:MM:SS+0800",
+  "finished_at": "YYYY-MM-DDTHH:MM:SS+0800",
+  "duration_seconds": 0,
+  "workflow": {
+    "flow": "multi-plan",
+    "developer_count": 0,
+    "tester_attempts": 0,
+    "reviewer_gate_used": false,
+    "issue_opened": 0,
+    "issue_resolved": 0,
+    "self_review_count": 0,
+    "review_report_count": 0
+  },
+  "product": {
+    "homepage": false,
+    "detail_page": false,
+    "cart": false,
+    "search_or_filter": false,
+    "product_count": 0,
+    "category_count": 0,
+    "cart_operations_passed": false
+  },
+  "verification": {
+    "install_passed": null,
+    "typecheck_passed": null,
+    "test_passed": null,
+    "build_passed": null,
+    "smoke_passed": null,
+    "start_command": ""
+  },
+  "visual": {
+    "viewport": "1280x2744",
+    "original": "artifacts/source-reference/screenshots/home-original-1280x2744.png",
+    "replica": "artifacts/screenshots/home-replica-1280x2744.png",
+    "diff": "artifacts/visual-comparison/home-diff-1280x2744.png",
+    "side_by_side": "artifacts/visual-comparison/home-side-by-side-1280x2744.png",
+    "rmse": null,
+    "mae": null,
+    "absolute_error_pixels": null,
+    "psnr": null,
+    "ssim": null
+  },
+  "artifact_counts": {
+    "kanban_markdown": 0,
+    "screenshots": 0,
+    "verification_logs": 0
+  },
+  "known_limits": []
+}

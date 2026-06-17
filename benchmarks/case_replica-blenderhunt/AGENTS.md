@@ -14,6 +14,8 @@
 - `PRD.md`: 产品需求唯一真源。
 - `DESIGN.md`: 视觉参考。
 - `token.css` / `theme.css`: 设计 token 参考。
+- `templates/`: 每次 run 的固定输出模板。
+- `scripts/validate-run.ts`: run artifact 校验脚本。
 
 如果文档冲突,功能范围以 `PRD.md` 为准,视觉方向以 `DESIGN.md` 为准。
 
@@ -69,7 +71,7 @@ runs/<YYYYMMDD_HHMM>-<flow>/
 
 ## 量化指标
 
-每次 run 必须在 `metrics.json` 写入同一组字段。字段缺失时使用 `null`,不要删除字段。
+每次 run 必须在 `metrics.json` 写入同一组字段,不要删除字段。模板中的 `0` / `false` / 空字符串是待填写默认值;确实无法判断的可空字段使用 `null`。
 
 ```json
 {
@@ -176,6 +178,21 @@ runs/<YYYYMMDD_HHMM>-<flow>/
     visual-comparison/
 ```
 
+创建 run 时先复制模板:
+
+```bash
+mkdir -p runs/<YYYYMMDD_HHMM>-<flow>
+cp templates/task-card.md templates/timeline.md templates/result.md templates/metrics.json runs/<YYYYMMDD_HHMM>-<flow>/
+```
+
+收尾时运行校验:
+
+```bash
+bun run scripts/validate-run.ts runs/<YYYYMMDD_HHMM>-<flow>
+```
+
+校验失败时,不要把 run 标记为可比较;在 `result.md` 和 `metrics.json.known_limits` 中记录缺失项。
+
 ## 完成标准
 
 一个 run 只有在以下条件满足时才算可比较:
@@ -189,3 +206,4 @@ runs/<YYYYMMDD_HHMM>-<flow>/
 - result 中写明未完成项和已知限制。
 - `metrics.json` 存在且字段完整。
 - homepage 原站/复刻截图按 `1280x2744` 完成 ImageMagick 对比。
+- `bun run scripts/validate-run.ts <run-dir>` 通过。
