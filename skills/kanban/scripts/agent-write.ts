@@ -233,6 +233,22 @@ function assertRelatedIssueForDevReport(
   }
 }
 
+function assertGuardedWriteAllowed(roleKey: RoleKey, op: Op): void {
+  if (roleKey === "developer" && op.key === "status" && op.raw === "done") {
+    throw new Error("developer.status=done 必须通过 action-write.ts --action tester.submit-report 更新");
+  }
+  const guardedByRole: Partial<Record<RoleKey, Set<string>>> = {
+    tester: new Set(["status", "case_document", "pass", "fail", "report"]),
+    integrator: new Set(["status", "report", "merged", "conflicts"]),
+  };
+  if (guardedByRole[roleKey]?.has(op.key)) {
+    const action = roleKey === "tester"
+      ? "tester.submit-cases / tester.submit-report"
+      : "integrator.submit-integration-report";
+    throw new Error(`${roleKey}.${op.key} 必须通过 action-write.ts --action ${action} 更新`);
+  }
+}
+
 async function main() {
   const args = parseArgs(Bun.argv.slice(2));
 
@@ -268,10 +284,12 @@ async function main() {
           `现有条目: ${existing.join(", ") || "(无)"}`,
       );
     }
+    if (!roleKey) throw new Error(`worktree "${args.worktree}" 未匹配 role`);
 
     // 3. 校验并应用 --set
     const applied: string[] = [];
     for (const op of args.ops) {
+      assertGuardedWriteAllowed(roleKey, op);
       // 向后兼容：旧字段 report/review/test 映射到新结构
       if (op.key === "report" || op.key === "review" || op.key === "test") {
         if (roleKey === "developer" && op.key === "review") {

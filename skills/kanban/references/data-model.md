@@ -100,6 +100,8 @@
 | `<role>.<name>.brief` | 人工领域 | `/kanban --new` / `--update` / `--role` |
 | `<role>.<name>.cwd`, `<role>.<name>.worktree` | 系统 | `scripts/role.ts` 认领/注册时自动写入 |
 | `<role>.<name>.status / reports / review / self_review / review_gate_required / case_document / pass / fail / report / merged / conflicts / decisions / closeout / attempt / error / blocked_on` | Agent 领域 | `scripts/agent-write.ts` 或 `scripts/action-write.ts` |
+
+其中收尾字段必须走 guarded action:`developer.status=done` 由 `tester.submit-report` 写入;`tester.case_document/pass/fail/report/status` 由 `tester.submit-cases` / `tester.submit-report` 写入;`integrator.report/merged/conflicts/status` 由 `integrator.submit-integration-report` 写入。
 | `updated` | 系统 | 每次写锁内自动刷新 |
 
 ## 状态机

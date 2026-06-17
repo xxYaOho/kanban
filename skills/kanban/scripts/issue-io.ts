@@ -28,11 +28,21 @@ export function parseFrontmatter(content: string): Record<string, string> {
   if (end === -1) return {};
   const raw = content.slice(4, end).trim();
   const out: Record<string, string> = {};
+  let activeListKey: string | null = null;
   for (const line of raw.split(/\r?\n/)) {
     const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!match) continue;
-    const value = match[2].trim();
-    out[match[1]] = value.replace(/^"(.*)"$/, "$1");
+    if (match) {
+      const value = match[2].trim();
+      out[match[1]] = value.replace(/^"(.*)"$/, "$1");
+      activeListKey = value === "" ? match[1] : null;
+      continue;
+    }
+    const listItem = line.match(/^\s*-\s*(.*)$/);
+    if (activeListKey && listItem) {
+      const value = listItem[1].trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+      const current = out[activeListKey];
+      out[activeListKey] = current ? `${current},${value}` : value;
+    }
   }
   return out;
 }

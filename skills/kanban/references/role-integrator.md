@@ -39,8 +39,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 ├─ 6. 编写集成报告 → integration-<NN>.md
 │
 ├─ 7. 更新 kanban(锁内)
-│   ├─ integrator.<你>.merged / conflicts 记录合并结果
-│   └─ integrator.<你>.status = "done"
+│   └─ action-write.ts 根据 integration report 写入 report / merged / conflicts / status
 │
 └─ 8. 通知 owner 执行 closeout
 ```
@@ -58,18 +57,23 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 3. **原子提交**(按顺序执行):
    - 自己:
      ```bash
-     bun run $SCRIPTS/agent-write.ts \
+     bun run $SCRIPTS/action-write.ts \
+       --action integrator.submit-integration-report \
        --thread <uuid> \
        --worktree <自己> \
-       --set status=done \
-       --set report=~/.kanban/<repo>/<uuid>/integration-<NN>.md
+       --report integration-<NN>.md \
+       --merged <branch-a> \
+       --merged <branch-b>
      ```
-   - 若需要记录合并分支或冲突,更新 integrator 自身:
+   - 若存在升级冲突,用 `--conflict` 记录；`regression_result: fail` 会让 integrator 保持 `working`:
      ```bash
-     bun run $SCRIPTS/agent-write.ts \
-       --thread <uuid> --worktree <自己> \
-       --set merged='["feature/dev-a"]' \
-       --set conflicts='[]'
+     bun run $SCRIPTS/action-write.ts \
+       --action integrator.submit-integration-report \
+       --thread <uuid> \
+       --worktree <自己> \
+       --report integration-<NN>.md \
+       --merged <branch-a> \
+       --conflict <file-or-summary>
      ```
 4. **清理已完成 worktree**:
    - 仅在主线合并完成、完整回归通过、integration report 已写入、owner closeout 已完成并且任务顶层 `status=done` 后执行。
@@ -100,7 +104,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 1. **验证前置条件**：所有 developer worktree 测试通过，无 blocked 状态
 2. **创建集成分支并合并**：`git checkout -b integration/<tag>-attempt-<NN> main`，逐个合并功能分支
 3. **运行完整回归测试套件**
-4. **原子更新 kanban 状态**（按上方命令执行：更新自身 done / merged / conflicts；任务顶层 done 由 owner closeout 处理）
+4. **原子更新 kanban 状态**（按上方 `action-write.ts` 执行：更新自身 report / merged / conflicts / status；任务顶层 done 由 owner closeout 处理）
 5. **清理已完成 worktree**：仅在 owner closeout 后移除 clean 的 developer/tester worktree,不删除分支；dirty 或无法定位的 worktree 必须汇报
 
 > 不写 integration report = 集成未发生。所有证据必须在文件系统中。
@@ -109,16 +113,17 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 
 ### 语义冲突无法自行判断
 
-在 integration report 中显式声明冲突。若冲突可归属到某个 developer,必须同时创建 issue,让该 developer 进入 `follow_issue`;只写 integrator 自身 `conflicts/error` 不会触发 developer 承接。
+在 integration report 中显式声明冲突,并通过 `integrator.submit-integration-report` 写回自身状态。若冲突可归属到某个 developer,必须同时创建 issue,让该 developer 进入 `follow_issue`;只写 integrator report 不会触发 developer 承接。
 
-1. 记录 integrator 自身冲突:
-- ```bash
-  bun run $SCRIPTS/agent-write.ts \
-    --thread <uuid> \
-    --worktree <你> \
-    --set conflicts='["<冲突文件与说明>"]' \
-    --set 'error=语义冲突需要 developer 介入'
-  ```
+1. 提交带冲突的 integration report:
+   ```bash
+   bun run $SCRIPTS/action-write.ts \
+     --action integrator.submit-integration-report \
+     --thread <uuid> \
+     --worktree <你> \
+     --report integration-<NN>.md \
+     --conflict <冲突文件与说明>
+   ```
 2. 为对应 developer 创建可承接 issue:
    ```bash
    bun run $SCRIPTS/issue.ts open \

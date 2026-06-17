@@ -25,7 +25,14 @@ enter(cwd = <tester-worktree>)
 
 ## 测试过程
 
-1. **检查测试用例文档**:若 `tester.<name>.case_document` 为空,先写 `test-cases-<NN>.md` 并用 `agent-write.ts --set case_document=test-cases-<NN>.md` 记录
+1. **检查测试用例文档**:若 `tester.<name>.case_document` 为空,先写 `test-cases-<NN>.md` 并记录:
+   ```bash
+   bun run $SCRIPTS/action-write.ts \
+     --action tester.submit-cases \
+     --thread <uuid> \
+     --worktree <自己> \
+     --case-document test-cases-<NN>.md
+   ```
 2. **设计/修订测试用例**:初版基于 plan / brief;developer 提交后,根据 dev report、open issue,以及存在 reviewer gate / `developer.review` 时的 review report 补充或调整
 3. **提交 Human review**:Human review 的对象是用例设计是否覆盖真实验收意图,不是逐条判定测试结果
 4. **合并分支**:在 tester worktree 里 merge / rebase 需要验证的 developer 分支,解决冲突(冲突大时创建 issue,或请 owner 升级 reviewer gate,并说明)
@@ -106,34 +113,34 @@ bun run $SCRIPTS/issue.ts open \
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `test-report` 模板,包含 `verdict: pass | fail`
 3. **原子提交**(按顺序执行):
    - pass:
-     - 对每个 developer worktree `<dev>`:
+     - 提交 test report,并显式列出本轮覆盖且应收尾的 developer:
        ```bash
-       bun run $SCRIPTS/agent-write.ts \
-         --thread <uuid> --worktree <dev> --set status=done
+       bun run $SCRIPTS/action-write.ts \
+         --action tester.submit-report \
+         --thread <uuid> \
+         --worktree <自己> \
+         --report test-<NN>.md \
+         --verdict pass \
+         --target <dev-a> \
+         --target <dev-b>
        ```
-     - 对每个 reviewer worktree `<rev>`:
+     - 对需要收尾的 reviewer worktree `<rev>`:
        ```bash
        bun run $SCRIPTS/agent-write.ts \
          --thread <uuid> --worktree <rev> --set status=done
        ```
-     - 自己:
-       ```bash
-       bun run $SCRIPTS/agent-write.ts \
-         --thread <uuid> --worktree <自己> --set status=done \
-         --set report=~/.kanban/<repo>/<uuid>/test-<NN>.md
-       ```
    - fail:
      - 自己:
        ```bash
-       bun run $SCRIPTS/agent-write.ts \
-         --thread <uuid> --worktree <自己> --set status=idle \
-         --set report=~/.kanban/<repo>/<uuid>/test-<NN>.md
+       bun run $SCRIPTS/action-write.ts \
+         --action tester.submit-report \
+         --thread <uuid> \
+         --worktree <自己> \
+         --report test-<NN>.md \
+         --verdict fail \
+         --target <dev-a>
        ```
-     - 对每个已定位且需重做的 developer worktree `<dev>`，优先用 `issue.ts open` 创建 issue；如必须直接回退：
-       ```bash
-       bun run $SCRIPTS/agent-write.ts \
-         --thread <uuid> --worktree <dev> --set status=follow_issue
-       ```
+     - 对每个已定位且需重做的 developer worktree `<dev>`，用 `issue.ts open` 创建 issue；由 developer 在 `follow_issue` 循环中承接修复。
      - 任务顶层保持 `in_progress`(不需调 update-task.ts)
 4. **汇报**:
    ```
@@ -155,7 +162,7 @@ bun run $SCRIPTS/issue.ts open \
 2. **维护测试用例文档**：写入或更新 `test-cases-<NN>.md`,并在 `tester.<name>.case_document` 记录
 3. **运行集成测试**：merge / rebase 各 dev 分支，按测试用例运行测试套件和手工验证
 4. **失败时创建 issue**：必须写清 reproduction、expected / actual、diagnosis、owner、blocker、retest plan
-5. **原子更新 kanban 状态**（pass / fail / issue done，按上方命令执行）
+5. **原子更新 kanban 状态**（pass / fail 走 `action-write.ts`; issue done 走 `issue.ts`）
 
 > 不写 test report 文件 = 测试结果不存在。对话中的结论不能替代文件记录。
 

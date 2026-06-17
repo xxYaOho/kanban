@@ -449,6 +449,12 @@ async function testQueryGateArtifacts(): Promise<void> {
     data[uuid].developer.alpha.self_review = "self-review-alpha-01.md";
     data[uuid].developer.alpha.status = "done";
     data[uuid].developer.alpha.review_gate_required = false;
+    data[uuid].developer = {
+      alpha: {
+        ...data[uuid].developer.alpha,
+        status: "done",
+      },
+    };
     data[uuid].tester = {};
     await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
 
@@ -486,19 +492,68 @@ async function testQueryGateArtifacts(): Promise<void> {
         error: null,
       },
     };
-    await writeFile(join(taskDir, "test-01.md"), [
+    await writeFile(join(taskDir, "test-cases-01.md"), [
+      "---",
+      "kind: test-cases",
+      `uuid: ${uuid}`,
+      "tester_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:00:00+08:00",
+      "updated: 2026-05-22T10:00:00+08:00",
+      "status: human_reviewed",
+      "source_plan: plan.md",
+      "covered_worktrees: [alpha]",
+      "related_reports: []",
+      "human_reviewed_at: 2026-05-22T10:01:00+08:00",
+      "---",
+      "",
+      "# Test Cases",
+    ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "test-bad.md"), [
       "---",
       "kind: test-report",
       `uuid: ${uuid}`,
-      "tester: full",
+      "test_worktree: full",
       "role: tester",
       "attempt: 1",
       "created: 2026-05-22T10:00:00+08:00",
       "verdict: pass",
       "---",
       "",
+      "# Bad Test Report",
+    ].join("\n"), "utf-8");
+    data[uuid].tester.full.report = `~/.kanban/${repo}/${uuid}/test-bad.md`;
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const invalidTesterEvidenceQuery = runScript(home, "query.ts", [uuid.slice(0, 8)]);
+    expectOk(invalidTesterEvidenceQuery, "query integrate invalid tester artifacts");
+    json = parseQueryJson(invalidTesterEvidenceQuery.stdout);
+    assert(json.canIntegrate === false, "canIntegrate should reject incomplete tester pass evidence");
+    assert(json.requiredArtifacts.some((artifact: any) =>
+      artifact.role === "tester" &&
+      artifact.requiredFor === "integrate" &&
+      artifact.valid === false &&
+      artifact.problem?.includes("related_case_document")
+    ), "requiredArtifacts should explain incomplete tester pass evidence");
+
+    await writeFile(join(taskDir, "test-01.md"), [
+      "---",
+      "kind: test-report",
+      `uuid: ${uuid}`,
+      "test_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:00:00+08:00",
+      "verdict: pass",
+      "related_case_document: test-cases-01.md",
+      "covered_worktrees: [alpha]",
+      "---",
+      "",
       "# Test Report",
     ].join("\n"), "utf-8");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].tester.full.report = `~/.kanban/${repo}/${uuid}/test-01.md`;
     await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
 
     const integrateQuery = runScript(home, "query.ts", [uuid.slice(0, 8)]);
@@ -844,7 +899,7 @@ async function testRoleAlias(home: string): Promise<void> {
   assert(!("test" in data[uuid]), "task.test should be removed on write");
 }
 
-async function testTesterCaseDocumentWrite(home: string): Promise<void> {
+async function testTesterGuardedAgentWriteRejectsDirectCloseoutFields(home: string): Promise<void> {
   const result = runScript(home, "agent-write.ts", [
     "--thread",
     uuid.slice(0, 8),
@@ -853,12 +908,30 @@ async function testTesterCaseDocumentWrite(home: string): Promise<void> {
     "--set",
     "case_document=test-cases-01.md",
   ]);
-  expectOk(result, "tester case_document write");
-  const json = parseJson(result.stdout);
-  assert(json.applied.includes("case_document=test-cases-01.md"), "agent-write should report case_document update");
+  assert(result.exitCode !== 0, "agent-write should reject direct tester case_document write");
+  assert(result.stderr.includes("tester.submit-cases"), "tester guarded write error should point to action-write");
 
-  const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
-  assert(data[uuid].tester.full.case_document === "test-cases-01.md", "tester case_document should persist");
+  const done = runScript(home, "agent-write.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--worktree",
+    "merge",
+    "--set",
+    "status=done",
+  ]);
+  assert(done.exitCode !== 0, "agent-write should reject direct integrator status write");
+  assert(done.stderr.includes("integrator.submit-integration-report"), "integrator guarded write error should point to action-write");
+
+  const developerDone = runScript(home, "agent-write.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--worktree",
+    "beta",
+    "--set",
+    "status=done",
+  ]);
+  assert(developerDone.exitCode !== 0, "agent-write should reject direct developer done write");
+  assert(developerDone.stderr.includes("tester.submit-report"), "developer done guarded write error should point to tester submit action");
 }
 
 async function testActionWriteDeveloperSubmit(home: string, taskDir: string): Promise<void> {
@@ -1333,6 +1406,21 @@ async function testActionWriteReviewerGate(home: string, taskDir: string): Promi
   assert(approveUnregisteredReport.exitCode !== 0, "reviewer approve should reject unregistered related_report");
   assert(approveUnregisteredReport.stderr.includes("developer.beta.reports"), "unregistered related_report error should mention developer reports");
 
+  const reviewerPassVerdict = runScript(home, "action-write.ts", [
+    "--action",
+    "reviewer.submit-gate-review",
+    "--thread",
+    uuid.slice(0, 8),
+    "--target",
+    "beta",
+    "--review",
+    "review-beta-02.md",
+    "--verdict",
+    "pass",
+  ]);
+  assert(reviewerPassVerdict.exitCode !== 0, "reviewer gate should reject tester verdict words");
+  assert(reviewerPassVerdict.stderr.includes("approve|reject"), "reviewer verdict error should name approve|reject");
+
   const approveWithRemainingIssue = runScript(home, "action-write.ts", [
     "--action",
     "reviewer.submit-gate-review",
@@ -1350,13 +1438,528 @@ async function testActionWriteReviewerGate(home: string, taskDir: string): Promi
   assert(data[uuid].developer.beta.status === "follow_issue", "review approve should return follow_issue when open issues remain");
 }
 
+async function testActionWriteTesterSubmitCasesAndReport(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-tester-action-home-"));
+  try {
+    const taskDir = await seedTask(home);
+    let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    delete data[uuid].test;
+    data[uuid].developer.alpha.status = "ready_for_test";
+    data[uuid].developer.beta.status = "done";
+    data[uuid].developer.gamma.status = "review_approved";
+    data[uuid].developer.delta.status = "done";
+    data[uuid].tester.full.status = "working";
+    data[uuid].tester.full.attempt = 1;
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    await writeFile(join(taskDir, "test-cases-01.md"), [
+      "---",
+      "kind: test-cases",
+      `uuid: ${uuid}`,
+      "tester_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:10:00+08:00",
+      "updated: 2026-05-22T10:10:00+08:00",
+      "status: human_reviewed",
+      "source_plan: plan.md",
+      "covered_worktrees: [alpha, beta, gamma, delta]",
+      "related_reports: []",
+      "human_reviewed_at: 2026-05-22T10:11:00+08:00",
+      "---",
+      "",
+      "# Test Cases",
+    ].join("\n"), "utf-8");
+    const cases = runScript(home, "action-write.ts", [
+      "--action",
+      "tester.submit-cases",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "full",
+      "--case-document",
+      "test-cases-01.md",
+    ]);
+    expectOk(cases, "tester submit cases");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].tester.full.case_document === "test-cases-01.md", "tester case document should persist");
+
+    await writeFile(join(taskDir, "test-01.md"), [
+      "---",
+      "kind: test-report",
+      `uuid: ${uuid}`,
+      "test_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:12:00+08:00",
+      "verdict: pass",
+      "related_case_document: test-cases-01.md",
+      "covered_worktrees: [alpha, beta, gamma, delta]",
+      "---",
+      "",
+      "# Test Report",
+    ].join("\n"), "utf-8");
+    const pass = runScript(home, "action-write.ts", [
+      "--action",
+      "tester.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "full",
+      "--report",
+      "test-01.md",
+      "--verdict",
+      "pass",
+      "--target",
+      "alpha",
+      "--target",
+      "gamma",
+      "--target",
+      "beta",
+      "--target",
+      "delta",
+    ]);
+    expectOk(pass, "tester submit pass report");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].developer.alpha.status === "done", "tester pass should mark covered alpha done");
+    assert(data[uuid].developer.gamma.status === "done", "tester pass should mark covered gamma done");
+    assert(data[uuid].developer.beta.status === "done", "tester pass should keep covered already-done beta done");
+    assert(data[uuid].developer.delta.status === "done", "tester pass should keep covered already-done delta done");
+    assert(data[uuid].tester.full.status === "done", "tester pass should mark tester done");
+    assert(data[uuid].tester.full.report === "test-01.md", "tester report should persist");
+
+    const reviewerVerdict = runScript(home, "action-write.ts", [
+      "--action",
+      "tester.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "full",
+      "--report",
+      "test-01.md",
+      "--verdict",
+      "approve",
+      "--target",
+      "alpha",
+    ]);
+    assert(reviewerVerdict.exitCode !== 0, "tester submit should reject reviewer verdict words");
+    assert(reviewerVerdict.stderr.includes("pass|fail"), "tester verdict error should name pass|fail");
+
+    const mismatchedTargets = runScript(home, "action-write.ts", [
+      "--action",
+      "tester.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "full",
+      "--report",
+      "test-01.md",
+      "--verdict",
+      "pass",
+      "--target",
+      "alpha",
+      "--target",
+      "beta",
+    ]);
+    assert(mismatchedTargets.exitCode !== 0, "tester submit should reject CLI targets that differ from report frontmatter");
+    assert(mismatchedTargets.stderr.includes("frontmatter 不一致"), "target mismatch error should mention frontmatter mismatch");
+
+    await writeFile(join(taskDir, "test-cases-empty.md"), [
+      "---",
+      "kind: test-cases",
+      `uuid: ${uuid}`,
+      "tester_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:12:30+08:00",
+      "updated: 2026-05-22T10:12:30+08:00",
+      "status: human_reviewed",
+      "source_plan: plan.md",
+      "covered_worktrees: []",
+      "related_reports: []",
+      "human_reviewed_at: 2026-05-22T10:12:30+08:00",
+      "---",
+      "",
+      "# Test Cases",
+    ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "test-empty-scope.md"), [
+      "---",
+      "kind: test-report",
+      `uuid: ${uuid}`,
+      "test_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:12:40+08:00",
+      "verdict: pass",
+      "related_case_document: test-cases-empty.md",
+      "covered_worktrees: [alpha, beta, gamma, delta]",
+      "---",
+      "",
+      "# Test Report",
+    ].join("\n"), "utf-8");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].tester.full.case_document = "test-cases-empty.md";
+    data[uuid].tester.full.status = "working";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const emptyCaseScope = runScript(home, "action-write.ts", [
+      "--action",
+      "tester.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "full",
+      "--report",
+      "test-empty-scope.md",
+      "--verdict",
+      "pass",
+    ]);
+    assert(emptyCaseScope.exitCode !== 0, "tester pass should reject empty case scope");
+    assert(emptyCaseScope.stderr.includes("covered_worktrees 不能为空"), "empty case scope error should explain coverage contract");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].tester.full.case_document = "test-cases-01.md";
+    data[uuid].tester.full.status = "working";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    data[uuid].developer.epsilon = {
+      status: "ready_for_test",
+      brief: "Epsilon work",
+      attempt: 1,
+      blocked_on: null,
+      worktree: "epsilon",
+      cwd: "epsilon",
+      reports: ["report-epsilon-01.md"],
+      review: null,
+      self_review: "self-review-epsilon-01.md",
+      review_gate_required: false,
+      error: null,
+    };
+    data[uuid].tester.full.status = "working";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const incompletePass = runScript(home, "action-write.ts", [
+      "--action",
+      "tester.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "full",
+      "--report",
+      "test-01.md",
+      "--verdict",
+      "pass",
+      "--target",
+      "alpha",
+      "--target",
+      "gamma",
+      "--target",
+      "beta",
+      "--target",
+      "delta",
+    ]);
+    assert(incompletePass.exitCode !== 0, "tester pass should reject uncovered ready developer");
+    assert(incompletePass.stderr.includes("未覆盖"), "uncovered ready developer error should explain coverage");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    delete data[uuid].developer.epsilon;
+
+    data[uuid].developer.delta.status = "follow_issue";
+    data[uuid].tester.full.status = "working";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const uncoveredFollowIssue = runScript(home, "action-write.ts", [
+      "--action",
+      "tester.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "full",
+      "--report",
+      "test-01.md",
+      "--verdict",
+      "pass",
+      "--target",
+      "alpha",
+      "--target",
+      "gamma",
+    ]);
+    assert(uncoveredFollowIssue.exitCode !== 0, "tester pass should reject target list that omits report-covered developer");
+    assert(uncoveredFollowIssue.stderr.includes("frontmatter 不一致"), "omitted report-covered target error should mention frontmatter mismatch");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].developer.delta.status = "done";
+
+    data[uuid].developer.beta.status = "working";
+
+    data[uuid].tester.full.status = "working";
+    data[uuid].tester.full.report = "";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    await writeFile(join(taskDir, "test-02.md"), [
+      "---",
+      "kind: test-report",
+      `uuid: ${uuid}`,
+      "test_worktree: full",
+      "role: tester",
+      "attempt: 2",
+      "created: 2026-05-22T10:13:00+08:00",
+      "verdict: fail",
+      "related_case_document: test-cases-01.md",
+      "covered_worktrees: [beta]",
+      "---",
+      "",
+      "# Test Report",
+    ].join("\n"), "utf-8");
+    const fail = runScript(home, "action-write.ts", [
+      "--action",
+      "tester.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "full",
+      "--report",
+      "test-02.md",
+      "--verdict",
+      "fail",
+      "--target",
+      "beta",
+    ]);
+    expectOk(fail, "tester submit fail report");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].developer.beta.status === "working", "tester fail should not directly mutate failed developer");
+    assert(data[uuid].tester.full.status === "idle", "tester fail should return tester to idle");
+    assert(data[uuid].tester.full.fail.includes("beta"), "tester fail should record failed target");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+async function testActionWriteIntegratorSubmitReport(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-integrator-action-home-"));
+  try {
+    const taskDir = await seedTask(home);
+    let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].developer.alpha.status = "done";
+    data[uuid].developer.beta.status = "done";
+    data[uuid].developer.gamma.status = "done";
+    data[uuid].developer.delta.status = "done";
+    data[uuid].tester.full.status = "done";
+    data[uuid].tester.full.report = "test-01.md";
+    data[uuid].tester.full.case_document = "test-cases-01.md";
+    delete data[uuid].tester.legacy;
+    delete data[uuid].test;
+    data[uuid].integrator.merge.status = "working";
+    data[uuid].integrator.merge.attempt = 1;
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    await writeFile(join(taskDir, "test-cases-01.md"), [
+      "---",
+      "kind: test-cases",
+      `uuid: ${uuid}`,
+      "tester_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:16:00+08:00",
+      "updated: 2026-05-22T10:17:00+08:00",
+      "status: human_reviewed",
+      "source_plan: plan.md",
+      "covered_worktrees:",
+      "  - alpha",
+      "  - beta",
+      "  - gamma",
+      "  - delta",
+      "related_reports: []",
+      "human_reviewed_at: 2026-05-22T10:17:00+08:00",
+      "---",
+      "",
+      "# Test Cases",
+    ].join("\n"), "utf-8");
+
+    await writeFile(join(taskDir, "test-01.md"), [
+      "---",
+      "kind: test-report",
+      `uuid: ${uuid}`,
+      "test_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T10:18:00+08:00",
+      "verdict: pass",
+      "related_case_document: test-cases-01.md",
+      "covered_worktrees:",
+      "  - alpha",
+      "  - beta",
+      "  - gamma",
+      "  - delta",
+      "---",
+      "",
+      "# Test Report",
+    ].join("\n"), "utf-8");
+
+    await writeFile(join(taskDir, "integration-01.md"), [
+      "---",
+      "kind: integration-report",
+      `uuid: ${uuid}`,
+      "worktree: merge",
+      "role: integrator",
+      "attempt: 1",
+      "created: 2026-05-22T10:20:00+08:00",
+      "merged_branches: [feature/alpha, feature/gamma]",
+      "conflicts_resolved: 0",
+      "conflicts_escalated: []",
+      "regression_result: pass",
+      "---",
+      "",
+      "# Integration Report",
+    ].join("\n"), "utf-8");
+    const pass = runScript(home, "action-write.ts", [
+      "--action",
+      "integrator.submit-integration-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "merge",
+      "--report",
+      "integration-01.md",
+      "--merged",
+      "feature/alpha",
+      "--merged",
+      "feature/gamma",
+    ]);
+    expectOk(pass, "integrator submit pass report");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].integrator.merge.status === "done", "passing integration should mark integrator done");
+    assert(data[uuid].integrator.merge.report === "integration-01.md", "integration report should persist");
+    assert(data[uuid].integrator.merge.merged.length === 2, "integration merged branches should persist");
+
+    data[uuid].integrator.merge.status = "working";
+    data[uuid].integrator.merge.report = "";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    await writeFile(join(taskDir, "integration-02.md"), [
+      "---",
+      "kind: integration-report",
+      `uuid: ${uuid}`,
+      "worktree: merge",
+      "role: integrator",
+      "attempt: 2",
+      "created: 2026-05-22T10:25:00+08:00",
+      "merged_branches: [feature/beta]",
+      "conflicts_resolved: 0",
+      "conflicts_escalated: [src/app.ts]",
+      "regression_result: fail",
+      "---",
+      "",
+      "# Integration Report",
+    ].join("\n"), "utf-8");
+    const fail = runScript(home, "action-write.ts", [
+      "--action",
+      "integrator.submit-integration-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "merge",
+      "--report",
+      "integration-02.md",
+      "--conflict",
+      "src/app.ts",
+    ]);
+    expectOk(fail, "integrator submit fail report");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].integrator.merge.status === "working", "failing integration should keep integrator working");
+    assert(data[uuid].integrator.merge.conflicts.includes("src/app.ts"), "integration conflicts should persist");
+    assert(data[uuid].integrator.merge.error.includes("failed"), "failing integration should record error");
+
+    await writeFile(join(taskDir, "integration-03.md"), [
+      "---",
+      "kind: integration-report",
+      `uuid: ${uuid}`,
+      "worktree: merge",
+      "role: integrator",
+      "attempt: 3",
+      "created: 2026-05-22T10:27:00+08:00",
+      "merged_branches: [feature/beta]",
+      "conflicts_resolved: 0",
+      "conflicts_escalated:",
+      "  - src/conflict.ts",
+      "regression_result: pass",
+      "---",
+      "",
+      "# Integration Report",
+    ].join("\n"), "utf-8");
+    const conflictPass = runScript(home, "action-write.ts", [
+      "--action",
+      "integrator.submit-integration-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "merge",
+      "--report",
+      "integration-03.md",
+    ]);
+    expectOk(conflictPass, "integrator submit conflict pass report");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].integrator.merge.status === "working", "escalated conflicts should keep integrator working");
+    assert(data[uuid].integrator.merge.conflicts.includes("src/conflict.ts"), "block list conflicts should parse");
+    assert(data[uuid].integrator.merge.error.includes("conflicts"), "conflict pass should record conflict error");
+
+    data[uuid].integrator.merge.status = "working";
+    data[uuid].integrator.merge.report = "";
+    data[uuid].tester.full.status = "done";
+    data[uuid].tester.full.report = "test-bad.md";
+    data[uuid].tester.full.case_document = "test-cases-01.md";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    await writeFile(join(taskDir, "test-bad.md"), [
+      "---",
+      "kind: test-report",
+      `uuid: ${uuid}`,
+      "test_worktree: full",
+      "attempt: 1",
+      "created: 2026-05-22T10:28:00+08:00",
+      "verdict: pass",
+      "covered_worktrees: [alpha, beta, gamma, delta]",
+      "---",
+      "",
+      "# Bad Test Report",
+    ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "integration-04.md"), [
+      "---",
+      "kind: integration-report",
+      `uuid: ${uuid}`,
+      "worktree: merge",
+      "role: integrator",
+      "attempt: 4",
+      "created: 2026-05-22T10:29:00+08:00",
+      "merged_branches: [feature/all]",
+      "conflicts_resolved: 0",
+      "conflicts_escalated: []",
+      "regression_result: pass",
+      "---",
+      "",
+      "# Integration Report",
+    ].join("\n"), "utf-8");
+    const fakeTesterPass = runScript(home, "action-write.ts", [
+      "--action",
+      "integrator.submit-integration-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "merge",
+      "--report",
+      "integration-04.md",
+    ]);
+    assert(fakeTesterPass.exitCode !== 0, "integrator should reject incomplete tester pass report");
+    assert(fakeTesterPass.stderr.includes("role"), "incomplete tester report error should mention missing role");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
 async function testActionWriteOwnerCloseoutGuard(): Promise<void> {
   const home = await mkdtemp(join(tmpdir(), "kanban-owner-closeout-home-"));
   try {
     const taskDir = await seedTask(home);
     let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
     delete data[uuid].test;
+    data[uuid].developer.alpha.status = "done";
+    data[uuid].developer.beta.status = "done";
+    data[uuid].developer.gamma.status = "done";
+    data[uuid].developer.delta.status = "done";
     data[uuid].tester.full.status = "done";
+    data[uuid].tester.full.case_document = "test-cases-01.md";
+    data[uuid].tester.full.report = "test-01.md";
     data[uuid].integrator.merge.attempt = 1;
     data[uuid].integrator.merge.status = "working";
     data[uuid].owner = {
@@ -1373,6 +1976,39 @@ async function testActionWriteOwnerCloseoutGuard(): Promise<void> {
     };
     await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
 
+    await writeFile(join(taskDir, "test-cases-01.md"), [
+      "---",
+      "kind: test-cases",
+      `uuid: ${uuid}`,
+      "tester_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T09:50:00+08:00",
+      "updated: 2026-05-22T09:51:00+08:00",
+      "status: human_reviewed",
+      "source_plan: plan.md",
+      "covered_worktrees: [alpha, beta, gamma, delta]",
+      "related_reports: []",
+      "human_reviewed_at: 2026-05-22T09:51:00+08:00",
+      "---",
+      "",
+      "# Test Cases",
+    ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "test-01.md"), [
+      "---",
+      "kind: test-report",
+      `uuid: ${uuid}`,
+      "test_worktree: full",
+      "role: tester",
+      "attempt: 1",
+      "created: 2026-05-22T09:55:00+08:00",
+      "verdict: pass",
+      "related_case_document: test-cases-01.md",
+      "covered_worktrees: [alpha, beta, gamma, delta]",
+      "---",
+      "",
+      "# Test Report",
+    ].join("\n"), "utf-8");
     await writeFile(join(taskDir, "owner-closeout-01.md"), [
       "---",
       "kind: owner-closeout",
@@ -1405,6 +2041,94 @@ async function testActionWriteOwnerCloseoutGuard(): Promise<void> {
     data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
     data[uuid].integrator.merge.status = "done";
     data[uuid].integrator.merge.report = "integration-01.md";
+    data[uuid].owner.main.decisions = [{
+      type: "integrator_required",
+      target: "task",
+      reason: "Need integration evidence",
+      created: "2026-05-22T10:02:00+08:00",
+      evidence: "test-01.md",
+    }];
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const missingIntegrationArtifact = runScript(home, "action-write.ts", [
+      "--action",
+      "owner.closeout",
+      "--thread",
+      uuid.slice(0, 8),
+      "--key",
+      "main",
+      "--closeout",
+      "owner-closeout-01.md",
+    ]);
+    assert(missingIntegrationArtifact.exitCode !== 0, "owner closeout should reject missing integration report artifact");
+    assert(missingIntegrationArtifact.stderr.includes("artifact 不存在"), "missing integration report error should mention artifact");
+    await writeFile(join(taskDir, "integration-01.md"), [
+      "---",
+      "kind: note",
+      `uuid: ${uuid}`,
+      "worktree: merge",
+      "role: integrator",
+      "attempt: 1",
+      "created: 2026-05-22T10:03:00+08:00",
+      "---",
+      "",
+      "# Bad Integration Report",
+    ].join("\n"), "utf-8");
+    const invalidIntegrationArtifact = runScript(home, "action-write.ts", [
+      "--action",
+      "owner.closeout",
+      "--thread",
+      uuid.slice(0, 8),
+      "--key",
+      "main",
+      "--closeout",
+      "owner-closeout-01.md",
+    ]);
+    assert(invalidIntegrationArtifact.exitCode !== 0, "owner closeout should reject invalid integration report artifact");
+    assert(invalidIntegrationArtifact.stderr.includes("kind"), "invalid integration report error should mention frontmatter kind");
+    await writeFile(join(taskDir, "integration-01.md"), [
+      "---",
+      "kind: integration-report",
+      `uuid: ${uuid}`,
+      "worktree: merge",
+      "role: integrator",
+      "attempt: 1",
+      "created: 2026-05-22T10:04:00+08:00",
+      "merged_branches: [feature/all]",
+      "conflicts_resolved: 0",
+      "conflicts_escalated: []",
+      "regression_result: pass",
+      "---",
+      "",
+      "# Integration Report",
+    ].join("\n"), "utf-8");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].developer.beta.status = "follow_issue";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const blockedDeveloper = runScript(home, "action-write.ts", [
+      "--action",
+      "owner.closeout",
+      "--thread",
+      uuid.slice(0, 8),
+      "--key",
+      "main",
+      "--closeout",
+      "owner-closeout-01.md",
+    ]);
+    assert(blockedDeveloper.exitCode !== 0, "owner closeout should block unfinished developer");
+    assert(blockedDeveloper.stderr.includes("developer 必须全部 done"), "owner closeout developer error should name done requirement");
+    const blockedDeveloperQuery = runScript(home, "query.ts", [uuid.slice(0, 8)]);
+    expectOk(blockedDeveloperQuery, "query owner closeout with unfinished developer");
+    const blockedJson = parseQueryJson(blockedDeveloperQuery.stdout);
+    assert(blockedJson.canOwnerCloseout === false, "query should block owner closeout while developer is unfinished");
+    assert(
+      blockedJson.blockedReasons.some((reason: any) =>
+        reason.gate === "owner_closeout" &&
+        reason.reason.includes("developer entries must be done")
+      ),
+      "query should report developer closeout blocker",
+    );
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].developer.beta.status = "done";
     await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
     const done = runScript(home, "action-write.ts", [
       "--action",
@@ -2203,12 +2927,14 @@ async function main() {
     await testRoleOwnerRegister();
     await testRoleOwnerRejectsExistingSeats();
     await testRoleDeveloperBlockedOnSatisfied();
-    await testTesterCaseDocumentWrite(home);
+    await testTesterGuardedAgentWriteRejectsDirectCloseoutFields(home);
     await testActionWriteOwnerRegister();
     await testActionWriteOwnerRegisterRejectsExistingSeats();
     await testActionWriteDeveloperSubmit(home, taskDir);
     await testActionWriteDeveloperSubmitRequiresRelatedIssue();
     await testActionWriteReviewerGate(home, taskDir);
+    await testActionWriteTesterSubmitCasesAndReport();
+    await testActionWriteIntegratorSubmitReport();
     await testActionWriteOwnerCloseoutGuard();
     await testIssueLifecycle(home, taskDir);
     await testRelatedIssueGuard(home, taskDir);

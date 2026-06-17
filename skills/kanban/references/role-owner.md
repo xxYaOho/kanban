@@ -47,6 +47,7 @@ bun run $SCRIPTS/action-write.ts \
 先遵守 `references/shared-delivery-contract.md` 的固定顺序。
 
 1. **前置条件**
+   - developer 全部 `done`
    - tester 全部 `done`
    - 若存在 active integrator,必须 integrator `done` 且有 integration report
    - `owner-closeout-<NN>.md` 已写入任务目录

@@ -12,9 +12,11 @@ import {
   nowIso,
   resolveUuid,
   type DevEntry,
+  type IntegratorEntry,
   type Kanban,
   type OwnerDecision,
   type Task,
+  type TesterEntry,
 } from "./kanban-io";
 import { fromKanbanRel, waveDir } from "./paths";
 import { listIssues, parseFrontmatter } from "./issue-io";
@@ -24,7 +26,12 @@ type Action =
   | "owner.request-reviewer-gate"
   | "developer.submit-report"
   | "reviewer.submit-gate-review"
+  | "tester.submit-cases"
+  | "tester.submit-report"
+  | "integrator.submit-integration-report"
   | "owner.closeout";
+
+type Verdict = "approve" | "reject" | "pass" | "fail";
 
 interface Args {
   action: Action;
@@ -37,12 +44,23 @@ interface Args {
   report?: string;
   selfReview?: string;
   review?: string;
-  verdict?: "approve" | "reject";
+  verdict?: Verdict;
   closeout?: string;
+  caseDocument?: string;
+  targets: string[];
+  merged: string[];
+  conflicts: string[];
+}
+
+function isVerdict(value: string): value is Verdict {
+  return ["approve", "reject", "pass", "fail"].includes(value);
 }
 
 function parseArgs(argv: string[]): Args {
   const a: Partial<Args> = {};
+  const targets: string[] = [];
+  const merged: string[] = [];
+  const conflicts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = argv[i + 1];
@@ -67,6 +85,7 @@ function parseArgs(argv: string[]): Args {
       case "--target":
         if (!v) throw new Error("--target 缺少值");
         a.target = v;
+        targets.push(v);
         i++;
         break;
       case "--brief":
@@ -100,7 +119,9 @@ function parseArgs(argv: string[]): Args {
         i++;
         break;
       case "--verdict":
-        if (v !== "approve" && v !== "reject") throw new Error("--verdict 必须是 approve 或 reject");
+        if (!v || !isVerdict(v)) {
+          throw new Error("--verdict 必须是 approve/reject 或 pass/fail");
+        }
         a.verdict = v;
         i++;
         break;
@@ -109,12 +130,31 @@ function parseArgs(argv: string[]): Args {
         a.closeout = v;
         i++;
         break;
+      case "--case-document":
+        if (!v) throw new Error("--case-document 缺少值");
+        a.caseDocument = v;
+        i++;
+        break;
+      case "--merged":
+        if (!v) throw new Error("--merged 缺少值");
+        merged.push(v);
+        i++;
+        break;
+      case "--conflict":
+      case "--conflicts":
+        if (!v) throw new Error(`${k} 缺少值`);
+        conflicts.push(v);
+        i++;
+        break;
       default:
         throw new Error(`未知参数: ${k}`);
     }
   }
   if (!a.action) throw new Error("缺少 --action");
   if (!a.uuid) throw new Error("缺少 --thread");
+  a.targets = targets;
+  a.merged = merged;
+  a.conflicts = conflicts;
   return a as Args;
 }
 
@@ -177,6 +217,127 @@ function uncoveredOpenIssues(task: Task, uuid: string, owner: string, reportFile
 function assertFm(fm: Record<string, string>, key: string, expected: string): void {
   if (fm[key] !== expected) {
     throw new Error(`frontmatter ${key} 应为 ${expected}, 实际 ${fm[key] ?? "(missing)"}`);
+  }
+}
+
+function assertFmOneOf(fm: Record<string, string>, key: string, expected: string[]): void {
+  if (!expected.includes(fm[key] ?? "")) {
+    throw new Error(`frontmatter ${key} 应为 ${expected.join(" 或 ")}, 实际 ${fm[key] ?? "(missing)"}`);
+  }
+}
+
+function parseFmList(value: string | undefined): string[] {
+  if (!value) return [];
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "null") return [];
+  const unquoted = trimmed.replace(/^"(.*)"$/, "$1");
+  if (unquoted.startsWith("[") && unquoted.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(unquoted);
+      if (Array.isArray(parsed)) return parsed.map((item) => String(item));
+    } catch {
+      // Fall through to permissive comma parser. Frontmatter examples are often YAML-ish.
+    }
+    return unquoted
+      .slice(1, -1)
+      .split(",")
+      .map((item) => item.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+  }
+  return unquoted
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseFmNumber(fm: Record<string, string>, key: string): number {
+  const value = fm[key];
+  if (!value || !/^\d+$/.test(value)) {
+    throw new Error(`frontmatter ${key} 必须是非负整数, 实际 ${value ?? "(missing)"}`);
+  }
+  return Number(value);
+}
+
+function assertSameMembers(actual: string[], expected: string[], label: string): void {
+  const actualSet = new Set(actual);
+  const expectedSet = new Set(expected);
+  const missing = [...expectedSet].filter((item) => !actualSet.has(item));
+  const extra = [...actualSet].filter((item) => !expectedSet.has(item));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(`${label} 与 frontmatter 不一致: missing=${missing.join(",") || "none"} extra=${extra.join(",") || "none"}`);
+  }
+}
+
+function assertTaskActive(task: Task): void {
+  if (task.status !== "planned" && task.status !== "in_progress") {
+    throw new Error(`task.status 必须是 planned 或 in_progress, 实际 ${task.status}`);
+  }
+}
+
+function assertAttemptCanApply(entry: { attempt: number }, attemptRaw: string | undefined, label: string): number {
+  const attempt = parseFmNumber({ attempt: attemptRaw ?? "" }, "attempt");
+  if (entry.attempt > 0 && attempt < entry.attempt) {
+    throw new Error(`${label} attempt 不能回退: ${attempt} < ${entry.attempt}`);
+  }
+  entry.attempt = attempt;
+  return attempt;
+}
+
+function registeredDeveloperReports(task: Task): Set<string> {
+  const reports = new Set<string>();
+  for (const dev of Object.values(task.developer ?? {})) {
+    for (const report of dev.reports ?? []) reports.add(filename(report));
+  }
+  return reports;
+}
+
+function assertKnownDevelopers(task: Task, keys: string[], label: string): void {
+  for (const key of keys) {
+    if (!task.developer?.[key]) throw new Error(`${label} 引用了不存在的 developer.${key}`);
+  }
+}
+
+function assertTesterPassEvidence(task: Task, uuid: string): void {
+  const testedDevelopers = new Set<string>();
+  for (const [key, tester] of Object.entries(task.tester ?? {})) {
+    if (tester.status !== "done" || !tester.report) {
+      throw new Error(`tester.${key} 必须 done 且有 report`);
+    }
+    if (!tester.case_document) throw new Error(`tester.${key}.case_document 为空,不能收尾`);
+    const testFm = readArtifactFrontmatter(task, uuid, tester.report);
+    assertFm(testFm, "kind", "test-report");
+    assertFm(testFm, "uuid", uuid);
+    assertFm(testFm, "test_worktree", key);
+    assertFm(testFm, "role", "tester");
+    assertFm(testFm, "verdict", "pass");
+    if (!testFm.related_case_document) throw new Error(`tester.${key} test report 缺少 related_case_document`);
+    const caseDocument = filename(testFm.related_case_document);
+    if (caseDocument !== tester.case_document) {
+      throw new Error(`tester.${key} test report related_case_document 与 tester.case_document 不一致: ${caseDocument}`);
+    }
+    const caseFm = readArtifactFrontmatter(task, uuid, caseDocument);
+    assertFm(caseFm, "kind", "test-cases");
+    assertFm(caseFm, "uuid", uuid);
+    assertFm(caseFm, "tester_worktree", key);
+    assertFm(caseFm, "role", "tester");
+    assertFmOneOf(caseFm, "status", ["human_reviewed", "revised"]);
+    if (!caseFm.human_reviewed_at || caseFm.human_reviewed_at === "null") {
+      throw new Error(`tester.${key} test-cases 必须有 human_reviewed_at`);
+    }
+    const covered = parseFmList(testFm.covered_worktrees);
+    if (covered.length === 0) throw new Error(`tester.${key} test report covered_worktrees 为空`);
+    assertKnownDevelopers(task, covered, `tester.${key} test report covered_worktrees`);
+    const caseCovered = parseFmList(caseFm.covered_worktrees);
+    for (const target of covered) {
+      if (!caseCovered.includes(target)) {
+        throw new Error(`tester.${key} test report covered_worktrees 超出 test-cases 范围: ${target}`);
+      }
+      testedDevelopers.add(target);
+    }
+  }
+  const untestedDevelopers = Object.keys(task.developer ?? {}).filter((key) => !testedDevelopers.has(key));
+  if (untestedDevelopers.length > 0) {
+    throw new Error(`tester pass report 未覆盖 developer: ${untestedDevelopers.join(", ")}`);
   }
 }
 
@@ -293,7 +454,9 @@ function submitDeveloperReport(task: Task, uuid: string, args: Args): string[] {
 function submitGateReview(task: Task, uuid: string, args: Args): string[] {
   if (!args.target) throw new Error("reviewer.submit-gate-review 缺少 --target");
   if (!args.review) throw new Error("reviewer.submit-gate-review 缺少 --review");
-  if (!args.verdict) throw new Error("reviewer.submit-gate-review 缺少 --verdict");
+  if (args.verdict !== "approve" && args.verdict !== "reject") {
+    throw new Error("reviewer.submit-gate-review 缺少 --verdict approve|reject");
+  }
   const dev = task.developer?.[args.target];
   if (!dev) throw new Error(`developer.${args.target} 不存在`);
   if (dev.status !== "waiting_review") throw new Error(`developer.${args.target} 不是 waiting_review`);
@@ -322,20 +485,206 @@ function submitGateReview(task: Task, uuid: string, args: Args): string[] {
   ];
 }
 
+function testerEntry(task: Task, key: string): TesterEntry {
+  const entry = task.tester?.[key];
+  if (!entry) throw new Error(`tester.${key} 不存在`);
+  return entry;
+}
+
+function integratorEntry(task: Task, key: string): IntegratorEntry {
+  const entry = task.integrator?.[key];
+  if (!entry) throw new Error(`integrator.${key} 不存在`);
+  return entry;
+}
+
+function submitTesterCases(task: Task, uuid: string, args: Args): string[] {
+  assertTaskActive(task);
+  if (!args.key) throw new Error("tester.submit-cases 缺少 --worktree");
+  if (!args.caseDocument) throw new Error("tester.submit-cases 缺少 --case-document");
+  const tester = testerEntry(task, args.key);
+  const caseFile = filename(args.caseDocument);
+  const fm = readArtifactFrontmatter(task, uuid, caseFile);
+  assertFm(fm, "kind", "test-cases");
+  assertFm(fm, "uuid", uuid);
+  assertFm(fm, "tester_worktree", args.key);
+  assertFm(fm, "role", "tester");
+  assertFmOneOf(fm, "status", ["draft", "human_reviewed", "revised"]);
+  if (!fm.source_plan) throw new Error("test-cases 缺少 source_plan");
+  if (!filename(fm.source_plan) || filename(task.plan) !== filename(fm.source_plan)) {
+    throw new Error(`test-cases source_plan 与 task.plan 不一致: ${fm.source_plan}`);
+  }
+  const covered = parseFmList(fm.covered_worktrees);
+  assertKnownDevelopers(task, covered, "test-cases covered_worktrees");
+  const knownReports = registeredDeveloperReports(task);
+  for (const relatedReport of parseFmList(fm.related_reports)) {
+    if (!knownReports.has(filename(relatedReport))) {
+      throw new Error(`test-cases related_reports 未登记在 developer reports 中: ${relatedReport}`);
+    }
+  }
+  assertAttemptCanApply(tester, fm.attempt, `tester.${args.key}`);
+  tester.case_document = caseFile;
+  if (tester.status === "idle") tester.status = "working";
+  tester.error = null;
+  return [`tester.${args.key}.case_document=${caseFile}`, `tester.${args.key}.status=${tester.status}`];
+}
+
+function submitTesterReport(task: Task, uuid: string, args: Args): string[] {
+  assertTaskActive(task);
+  if (!args.key) throw new Error("tester.submit-report 缺少 --worktree");
+  if (!args.report) throw new Error("tester.submit-report 缺少 --report");
+  if (args.verdict !== "pass" && args.verdict !== "fail") {
+    throw new Error("tester.submit-report 缺少 --verdict pass|fail");
+  }
+  const verdict = args.verdict;
+  const tester = testerEntry(task, args.key);
+  if (!tester.case_document) throw new Error(`tester.${args.key}.case_document 为空,不能提交 test report`);
+  const reportFile = filename(args.report);
+  const fm = readArtifactFrontmatter(task, uuid, reportFile);
+  assertFm(fm, "kind", "test-report");
+  assertFm(fm, "uuid", uuid);
+  assertFm(fm, "test_worktree", args.key);
+  assertFm(fm, "role", "tester");
+  assertFm(fm, "verdict", verdict);
+  if (!fm.related_case_document) throw new Error("test report 缺少 related_case_document");
+  const caseDocument = filename(fm.related_case_document);
+  if (tester.case_document !== caseDocument) {
+    throw new Error(`test report related_case_document 与 tester.${args.key}.case_document 不一致: ${caseDocument}`);
+  }
+  const caseFm = readArtifactFrontmatter(task, uuid, caseDocument);
+  assertFm(caseFm, "kind", "test-cases");
+  assertFm(caseFm, "uuid", uuid);
+  assertFm(caseFm, "tester_worktree", args.key);
+  assertFm(caseFm, "role", "tester");
+  if (verdict === "pass") {
+    assertFmOneOf(caseFm, "status", ["human_reviewed", "revised"]);
+    if (!caseFm.human_reviewed_at || caseFm.human_reviewed_at === "null") {
+      throw new Error("tester.submit-report pass 前 test-cases 必须有 human_reviewed_at");
+    }
+  }
+  assertAttemptCanApply(tester, fm.attempt, `tester.${args.key}`);
+  const covered = parseFmList(fm.covered_worktrees);
+  if (covered.length === 0) {
+    throw new Error("tester.submit-report frontmatter covered_worktrees 必须指定覆盖 developer");
+  }
+  if (args.targets.length > 0) {
+    assertSameMembers(args.targets, covered, "tester.submit-report --target");
+  }
+  assertKnownDevelopers(task, covered, "test-report covered_worktrees");
+  const caseCovered = parseFmList(caseFm.covered_worktrees);
+  if (caseCovered.length === 0) {
+    throw new Error("test-cases covered_worktrees 不能为空");
+  }
+  for (const target of covered) {
+    if (!caseCovered.includes(target)) {
+      throw new Error(`test-report covered_worktrees 超出 test-cases 范围: ${target}`);
+    }
+  }
+  const applied = [`tester.${args.key}.case_document=${tester.case_document}`];
+  if (verdict === "pass") {
+    const activeNotCovered = Object.keys(task.developer ?? {})
+      .filter((key) => !covered.includes(key));
+    if (activeNotCovered.length > 0) {
+      throw new Error(`tester pass 未覆盖 developer: ${activeNotCovered.join(", ")}`);
+    }
+    for (const target of covered) {
+      const dev = task.developer?.[target];
+      if (!dev) throw new Error(`covered developer.${target} 不存在`);
+      if (!["ready_for_test", "review_approved", "done"].includes(dev.status)) {
+        throw new Error(`developer.${target} 当前 status=${dev.status}, tester pass 前必须 ready_for_test/review_approved/done`);
+      }
+    }
+    for (const target of covered) {
+      task.developer[target]!.status = "done";
+      applied.push(`developer.${target}.status=done`);
+    }
+    tester.pass = [...new Set([...(tester.pass ?? []), ...covered])];
+    tester.fail = [];
+    tester.status = "done";
+  } else {
+    tester.fail = [...new Set([...(tester.fail ?? []), ...covered])];
+    tester.pass = [];
+    tester.status = "idle";
+  }
+  tester.report = reportFile;
+  tester.error = null;
+  applied.push(`tester.${args.key}.report=${reportFile}`, `tester.${args.key}.status=${tester.status}`);
+  return applied;
+}
+
+function submitIntegrationReport(task: Task, uuid: string, args: Args): string[] {
+  assertTaskActive(task);
+  if (!args.key) throw new Error("integrator.submit-integration-report 缺少 --worktree");
+  if (!args.report) throw new Error("integrator.submit-integration-report 缺少 --report");
+  const integrator = integratorEntry(task, args.key);
+  const reportFile = filename(args.report);
+  const fm = readArtifactFrontmatter(task, uuid, reportFile);
+  assertFm(fm, "kind", "integration-report");
+  assertFm(fm, "uuid", uuid);
+  assertFm(fm, "worktree", args.key);
+  assertFm(fm, "role", "integrator");
+  assertFmOneOf(fm, "regression_result", ["pass", "fail"]);
+  parseFmNumber(fm, "conflicts_resolved");
+  assertAttemptCanApply(integrator, fm.attempt, `integrator.${args.key}`);
+  const merged = args.merged.length > 0 ? args.merged : parseFmList(fm.merged_branches);
+  const conflicts = args.conflicts.length > 0 ? args.conflicts : parseFmList(fm.conflicts_escalated);
+  const developerBlockers = Object.entries(task.developer ?? {})
+    .filter(([, dev]) => dev.status !== "done")
+    .map(([key]) => key);
+  if (developerBlockers.length > 0) {
+    throw new Error(`integrator submit 前 developer 必须全部 done: ${developerBlockers.join(", ")}`);
+  }
+  assertTesterPassEvidence(task, uuid);
+  integrator.report = reportFile;
+  integrator.merged = merged;
+  integrator.conflicts = conflicts;
+  integrator.status = fm.regression_result === "pass" && conflicts.length === 0 ? "done" : "working";
+  integrator.error = fm.regression_result === "pass" ? null : "integration regression failed";
+  if (fm.regression_result === "pass" && conflicts.length > 0) {
+    integrator.error = "integration conflicts escalated";
+  }
+  return [
+    `integrator.${args.key}.report=${reportFile}`,
+    `integrator.${args.key}.merged=${JSON.stringify(merged)}`,
+    `integrator.${args.key}.conflicts=${JSON.stringify(conflicts)}`,
+    `integrator.${args.key}.status=${integrator.status}`,
+  ];
+}
+
 function submitOwnerCloseout(task: Task, uuid: string, args: Args): string[] {
   const ownerKey = args.key ?? Object.keys(task.owner ?? {})[0];
   if (!ownerKey || !task.owner?.[ownerKey]) throw new Error("owner 不存在,不能 closeout");
   if (!args.closeout) throw new Error("owner.closeout 缺少 --closeout");
+  const developerBlockers = Object.entries(task.developer ?? {})
+    .filter(([, entry]) => entry.status !== "done")
+    .map(([key]) => key);
+  if (developerBlockers.length > 0) {
+    throw new Error(`owner.closeout 前 developer 必须全部 done: ${developerBlockers.join(", ")}`);
+  }
   const testers = Object.values(task.tester ?? {});
   if (testers.length === 0 || testers.some((entry) => entry.status !== "done")) {
     throw new Error("owner.closeout 前 tester 必须全部 done");
   }
+  assertTesterPassEvidence(task, uuid);
   const activeIntegrators = activeIntegratorEntries(task);
   if (activeIntegrators.length > 0) {
     const notDone = activeIntegrators.filter((key) => task.integrator[key]?.status !== "done" || !task.integrator[key]?.report);
     if (notDone.length > 0) {
       throw new Error(`active integrator 未完成: ${notDone.join(", ")}`);
     }
+  }
+  const integratorRequired = Object.values(task.owner ?? {})
+    .flatMap((entry) => entry.decisions ?? [])
+    .some((decision) => decision.type === "integrator_required");
+  const doneIntegrators = Object.entries(task.integrator ?? {})
+    .filter(([, entry]) => entry.status === "done");
+  if (integratorRequired && doneIntegrators.length === 0) {
+    throw new Error("owner.closeout 前 owner 要求的 integrator evidence 必须完成");
+  }
+  for (const [key, entry] of doneIntegrators) {
+    if (!entry.report) throw new Error(`integrator.${key}.report 为空,不能 closeout`);
+    const fm = readArtifactFrontmatter(task, uuid, entry.report);
+    assertFm(fm, "kind", "integration-report");
+    assertFm(fm, "uuid", uuid);
   }
   const closeoutFile = filename(args.closeout);
   const fm = readArtifactFrontmatter(task, uuid, closeoutFile);
@@ -366,6 +715,15 @@ async function main() {
         break;
       case "reviewer.submit-gate-review":
         applied = submitGateReview(task, uuid, args);
+        break;
+      case "tester.submit-cases":
+        applied = submitTesterCases(task, uuid, args);
+        break;
+      case "tester.submit-report":
+        applied = submitTesterReport(task, uuid, args);
+        break;
+      case "integrator.submit-integration-report":
+        applied = submitIntegrationReport(task, uuid, args);
         break;
       case "owner.closeout":
         applied = submitOwnerCloseout(task, uuid, args);

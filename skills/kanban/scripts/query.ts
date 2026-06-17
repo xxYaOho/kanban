@@ -303,6 +303,27 @@ function sameArtifactRef(a: string | null | undefined, b: string | null | undefi
   return basename(fromKanbanRel(a)) === basename(fromKanbanRel(b));
 }
 
+function parseFmList(value: string | undefined): string[] {
+  if (!value) return [];
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "null") return [];
+  const unquoted = trimmed.replace(/^"(.*)"$/, "$1");
+  if (unquoted.startsWith("[") && unquoted.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(unquoted);
+      if (Array.isArray(parsed)) return parsed.map((item) => String(item));
+    } catch {
+      // Fall through to YAML-ish comma parser.
+    }
+    return unquoted
+      .slice(1, -1)
+      .split(",")
+      .map((item) => item.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+  }
+  return unquoted.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
 function validateArtifact(
   task: Task,
   uuid: string,
@@ -369,6 +390,49 @@ function validateDeveloperReportPair(
   return { report: reportValidation, selfReview: selfReviewValidation };
 }
 
+function invalid(problem: string): { missing: boolean; valid: boolean; problem?: string } {
+  return { missing: false, valid: false, problem };
+}
+
+function validateTesterPassEvidence(
+  task: Task,
+  uuid: string,
+  key: string,
+  report: string | null | undefined,
+  caseDocument: string | null | undefined,
+): { missing: boolean; valid: boolean; problem?: string } {
+  const testFm = readArtifactFrontmatter(task, uuid, report);
+  if (!testFm) return { missing: true, valid: false, problem: "missing" };
+  for (const [field, expected] of Object.entries({ kind: "test-report", uuid, test_worktree: key, role: "tester", verdict: "pass" })) {
+    if (testFm[field] !== expected) return invalid(formatExpectedProblem(field, expected, testFm[field]));
+  }
+  if (!testFm.related_case_document) return invalid("related_case_document expected test-cases-<NN>.md, got (missing)");
+  if (!sameArtifactRef(testFm.related_case_document, caseDocument)) {
+    return invalid(formatExpectedProblem("related_case_document", caseDocument ?? "(missing)", testFm.related_case_document));
+  }
+  const caseFm = readArtifactFrontmatter(task, uuid, caseDocument);
+  if (!caseFm) return invalid("case_document missing");
+  for (const [field, expected] of Object.entries({ kind: "test-cases", uuid, tester_worktree: key, role: "tester" })) {
+    if (caseFm[field] !== expected) return invalid(`case_document ${formatExpectedProblem(field, expected, caseFm[field])}`);
+  }
+  if (caseFm.status !== "human_reviewed" && caseFm.status !== "revised") {
+    return invalid(`case_document status expected human_reviewed or revised, got ${caseFm.status ?? "(missing)"}`);
+  }
+  if (!caseFm.human_reviewed_at || caseFm.human_reviewed_at === "null") {
+    return invalid("case_document human_reviewed_at expected non-null");
+  }
+  const covered = parseFmList(testFm.covered_worktrees);
+  if (covered.length === 0) return invalid("covered_worktrees expected non-empty");
+  const caseCovered = parseFmList(caseFm.covered_worktrees);
+  for (const target of covered) {
+    if (!task.developer?.[target]) return invalid(`covered_worktrees references missing developer.${target}`);
+    if (!caseCovered.includes(target)) return invalid(`covered_worktrees exceeds case_document scope: ${target}`);
+  }
+  const untested = Object.keys(task.developer ?? {}).filter((target) => !covered.includes(target));
+  if (untested.length > 0) return invalid(`covered_worktrees missing developer: ${untested.join(", ")}`);
+  return { missing: false, valid: true };
+}
+
 function hasInvalidArtifact(requiredArtifacts: RequiredArtifact[], gate: GateName): boolean {
   return requiredArtifacts.some((artifact) => artifact.requiredFor === gate && (!artifact.valid || artifact.missing));
 }
@@ -424,11 +488,7 @@ function buildRequiredArtifacts(task: Task, uuid: string): RequiredArtifact[] {
 
   for (const [key, entry] of Object.entries(task.tester ?? {})) {
     if (entry.status === "done") {
-      const validation = validateArtifact(task, uuid, entry.report, {
-        kind: "test-report",
-        uuid,
-        verdict: "pass",
-      });
+      const validation = validateTesterPassEvidence(task, uuid, key, entry.report, entry.case_document);
       artifacts.push({
         role: "tester",
         key,
@@ -505,6 +565,16 @@ function buildBlockedReasons(
   }
 
   const testers = Object.values(task.tester ?? {});
+  const closeoutDeveloperBlockers = Object.entries(task.developer ?? {})
+    .filter(([, entry]) => entry.status !== "done")
+    .map(([key, entry]) => summarizeEntry("developer", key, entry));
+  if (closeoutDeveloperBlockers.length > 0) {
+    reasons.push({
+      gate: "owner_closeout",
+      reason: "developer entries must be done before owner closeout",
+      entries: closeoutDeveloperBlockers,
+    });
+  }
   if (testers.length === 0) {
     reasons.push({ gate: "integrate", reason: "tester must be done with passing test report before integration" });
   }

@@ -38,7 +38,7 @@ UUID 解析、活跃任务筛选和多候选处理遵循 `SKILL.md` 的任务定
 | Agent 字段 | `<role>.<name>.status` / `attempt` / `error` / `blocked_on` / `reports` / `review` / `pass` / `fail` / `report` / `merged` / `conflicts` / `cwd` / `worktree` / `case_document` |
 | 系统字段 | `created` / `updated` |
 
-这类字段必须由角色脚本、`agent-write.ts` 或系统锁内逻辑维护。越权时拒绝,不要建议直接编辑 `kanban.json` 作为正常路径。
+这类字段必须由角色脚本、`agent-write.ts` 或系统锁内逻辑维护。越权时拒绝,不要建议直接编辑 `kanban.json` 作为正常路径。收尾字段有额外 guard:`developer.status=done`、tester case/report/pass/fail/status、integrator report/merged/conflicts/status 必须通过对应 `action-write.ts` action 写入。
 
 ## `blocked_on` 预校验
 
