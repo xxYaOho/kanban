@@ -122,6 +122,12 @@ function isDeveloperNewlyReadyForTest(status: string): boolean {
   return status === "ready_for_test" || status === "review_approved";
 }
 
+function isDeveloperBlockerSatisfied(task: Task, blockedOn: string | null): boolean {
+  if (!blockedOn) return true;
+  const blocker = task.developer?.[blockedOn];
+  return Boolean(blocker && isDeveloperReadyForTest(blocker.status));
+}
+
 function reviewerTrigger(args: StandbyTriggerArgs, task: Task): StandbyTriggerResult {
   const target = developerEntries(task)
     .filter(([, entry]) => entry.status === "waiting_review")
@@ -190,7 +196,8 @@ function developerTrigger(args: StandbyTriggerArgs, uuid: string, task: Task): S
   if (!dev) throw new Error(`developer.${args.key} 不存在`);
 
   if (dev.status === "idle") {
-    if ((task.status === "planned" || task.status === "in_progress") && !dev.blocked_on) {
+    const blockerSatisfied = isDeveloperBlockerSatisfied(task, dev.blocked_on);
+    if ((task.status === "planned" || task.status === "in_progress") && blockerSatisfied) {
       const fp = fingerprint(args.role, args.key, "developer_start", args.key, dev.status, dev.attempt, task.plan || "-");
       return readyIfUnseen(args, {
         role: args.role,
@@ -198,7 +205,9 @@ function developerTrigger(args: StandbyTriggerArgs, uuid: string, task: Task): S
         action: "developer_start",
         targets: [args.key],
         fingerprint: fp,
-        reason: "developer is idle and task can start",
+        reason: dev.blocked_on
+          ? `developer blocker ${dev.blocked_on} is ready`
+          : "developer is idle and task can start",
       });
     }
     return { ready: false, reason: dev.blocked_on ? `developer blocked_on ${dev.blocked_on}` : `task status ${task.status} cannot start` };

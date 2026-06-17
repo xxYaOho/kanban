@@ -62,6 +62,18 @@ function hasAnyNonOwnerSeat(task: Kanban[string]): boolean {
   return false;
 }
 
+function isDeveloperBlockerSatisfied(task: Kanban[string], blockedOn: string | null): boolean {
+  if (!blockedOn) return true;
+  const blocker = task.developer?.[blockedOn];
+  return Boolean(blocker && ["ready_for_test", "review_approved", "done"].includes(blocker.status));
+}
+
+function developerBlockedReason(task: Kanban[string], blockedOn: string | null): string | null {
+  if (!blockedOn) return null;
+  const blocker = task.developer?.[blockedOn];
+  return `被 ${blockedOn} 阻塞${blocker ? ` (当前 ${blocker.status})` : ""}`;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -140,14 +152,14 @@ async function main() {
         if (task.status === "draft") {
           autoStartReason = "任务尚在 draft，需先提升到 planned";
         } else if (task.status === "planned" || task.status === "in_progress") {
-          if (!preset.blocked_on) {
+          if (isDeveloperBlockerSatisfied(task, preset.blocked_on)) {
             preset.status = "working";
             autoStarted = true;
             if (task.status === "planned") {
               task.status = "in_progress" as TaskStatus;
             }
           } else {
-            autoStartReason = `被 ${preset.blocked_on} 阻塞`;
+            autoStartReason = developerBlockedReason(task, preset.blocked_on);
           }
         }
       }
@@ -169,7 +181,7 @@ async function main() {
           if (task.status === "draft") {
             autoStartReason = "任务尚在 draft，需先提升到 planned";
           } else if (task.status === "planned" || task.status === "in_progress") {
-            if (!existing.blocked_on) {
+            if (isDeveloperBlockerSatisfied(task, existing.blocked_on)) {
               existing.status = "working";
               existing.attempt = Math.max(existing.attempt, 1);
               autoStarted = true;
@@ -177,7 +189,7 @@ async function main() {
                 task.status = "in_progress" as TaskStatus;
               }
             } else {
-              autoStartReason = `被 ${existing.blocked_on} 阻塞`;
+              autoStartReason = developerBlockedReason(task, existing.blocked_on);
             }
           }
         }

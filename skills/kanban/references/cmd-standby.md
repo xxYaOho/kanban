@@ -77,7 +77,7 @@ Developer:
 
 | 条件 | 当前状态 | 动作 |
 |------|----------|------|
-| A | `idle`,task 为 `planned/in_progress`,且无 `blocked_on` | 读 plan / 子计划,开始开发 |
+| A | `idle`,task 为 `planned/in_progress`,且无 `blocked_on` 或 `blocked_on` developer 已 `ready_for_test/review_approved/done` | 读 plan / 子计划,开始开发 |
 | B | `review_rejected` | 读最新 review,返工 |
 | C | `follow_issue` | 读 owner 为自己的 open issue,修复 |
 

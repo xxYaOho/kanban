@@ -1335,6 +1335,94 @@ async function testRoleOwnerRejectsExistingSeats(): Promise<void> {
   }
 }
 
+async function testRoleDeveloperBlockedOnSatisfied(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-role-dev-blocked-home-"));
+  try {
+    await seedTask(home);
+    let data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].status = "in_progress";
+    data[uuid].developer.alpha.status = "working";
+    data[uuid].developer.beta.status = "idle";
+    data[uuid].developer.beta.attempt = 0;
+    data[uuid].developer.beta.blocked_on = "alpha";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const blocked = runScript(home, "role.ts", [
+      "--role",
+      "developer",
+      "--worktree",
+      "beta",
+      "--brief",
+      "Beta blocked by alpha",
+      "--thread",
+      uuid.slice(0, 8),
+    ]);
+    expectOk(blocked, "role developer blocked_on unmet");
+    let json = parseJson(blocked.stdout);
+    assert(json.autoStarted === false, "developer with unmet blocker should not auto-start");
+    assert(json.autoStartReason.includes("alpha"), "unmet blocker reason should mention blocker");
+
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].developer.beta.status === "idle", "unmet blocked_on developer should stay idle");
+
+    data[uuid].developer.alpha.status = "ready_for_test";
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    const result = runScript(home, "role.ts", [
+      "--role",
+      "developer",
+      "--worktree",
+      "beta",
+      "--brief",
+      "Beta after alpha",
+      "--thread",
+      uuid.slice(0, 8),
+    ]);
+    expectOk(result, "role developer blocked_on satisfied");
+    json = parseJson(result.stdout);
+    assert(json.autoStarted === true, "developer with satisfied blocker should auto-start");
+
+    let updated = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(updated[uuid].developer.beta.status === "working", "satisfied blocked_on developer should move to working");
+    assert(updated[uuid].developer.beta.attempt === 1, "auto-started blocked_on developer should get attempt");
+
+    updated[uuid].developer.gamma.status = "ready_for_test";
+    updated[uuid].developer.delta = {
+      status: "idle",
+      brief: "Delta after gamma",
+      attempt: 0,
+      blocked_on: "gamma",
+      worktree: null,
+      cwd: null,
+      reports: [],
+      review: null,
+      self_review: null,
+      review_gate_required: false,
+      error: null,
+    };
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(updated, null, 2) + "\n");
+    const claimed = runScript(home, "role.ts", [
+      "--role",
+      "developer",
+      "--worktree",
+      "delta-impl",
+      "--claim-from",
+      "delta",
+      "--brief",
+      "Delta after gamma",
+      "--thread",
+      uuid.slice(0, 8),
+    ]);
+    expectOk(claimed, "role developer claim-from blocked_on satisfied");
+    json = parseJson(claimed.stdout);
+    assert(json.autoStarted === true, "claim-from with satisfied blocker should auto-start");
+    updated = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(updated[uuid].developer.delta.status === "working", "claim-from satisfied blocked_on should move to working");
+    assert(updated[uuid].developer.delta.cwd === "delta-impl", "claim-from should still bind cwd");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
 async function testIssueLifecycle(home: string, taskDir: string): Promise<void> {
   const open = runScript(home, "issue.ts", [
     "open",
@@ -1660,6 +1748,37 @@ async function testStandbyDeveloper(home: string): Promise<void> {
   expectOk(idle, "standby developer idle");
   assert(parseJson(idle.stdout).action === "developer_start", "idle developer should trigger start");
 
+  data[uuid].developer.alpha.status = "working";
+  data[uuid].developer.beta.blocked_on = "alpha";
+  await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+  const blocked = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "developer",
+    "--key",
+    "beta",
+  ]);
+  expectOk(blocked, "standby developer blocked_on unmet");
+  let blockedJson = parseJson(blocked.stdout);
+  assert(blockedJson.ready === false, "idle developer should not trigger while blocker is not ready");
+  assert(blockedJson.reason.includes("blocked_on alpha"), "blocked developer reason should mention blocker");
+
+  data[uuid].developer.alpha.status = "ready_for_test";
+  await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+  const unblocked = runScript(home, "standby-trigger.ts", [
+    "--thread",
+    uuid.slice(0, 8),
+    "--role",
+    "developer",
+    "--key",
+    "beta",
+  ]);
+  expectOk(unblocked, "standby developer blocked_on satisfied");
+  blockedJson = parseJson(unblocked.stdout);
+  assert(blockedJson.ready === true, "idle developer should trigger when blocker is ready");
+  assert(blockedJson.action === "developer_start", "satisfied blocked_on should trigger developer_start");
+
   const issue = runScript(home, "standby-trigger.ts", [
     "--thread",
     uuid.slice(0, 8),
@@ -1817,6 +1936,7 @@ async function main() {
     await testRoleAlias(home);
     await testRoleOwnerRegister();
     await testRoleOwnerRejectsExistingSeats();
+    await testRoleDeveloperBlockedOnSatisfied();
     await testTesterCaseDocumentWrite(home);
     await testActionWriteOwnerRegister();
     await testActionWriteOwnerRegisterRejectsExistingSeats();

@@ -78,8 +78,8 @@ developer 注册或认领后,脚本会按状态决定是否自动开工:
 | 条件 | 脚本行为 | Agent 行为 |
 |------|----------|------------|
 | task 为 `draft` | 保持 idle,输出 `autoStartReason` | 汇报需先提升到 `planned` |
-| `blocked_on` 有值 | 保持 `status=idle`,输出阻塞原因;claim-from 时已写入 `cwd/worktree` 且 `attempt=1` | 汇报阻塞项,并说明该席位已认领、不再出现在 `idleStations` |
-| task 为 `planned/in_progress` 且无 `blocked_on` | `status=working`, `attempt=1` 或至少为 1 | 读取 plan / 子计划并直接开始第一项工作 |
+| `blocked_on` 有值且目标未 `ready_for_test/review_approved/done` | 保持 `status=idle`,输出阻塞原因;claim-from 时已写入 `cwd/worktree` 且 `attempt=1` | 汇报阻塞项,并说明该席位已认领、不再出现在 `idleStations` |
+| task 为 `planned/in_progress` 且无未满足 `blocked_on` | `status=working`, `attempt=1` 或至少为 1 | 读取 plan / 子计划并直接开始第一项工作 |
 | task 为 `planned` 且 developer 开工 | task 提升为 `in_progress` | 汇报状态变化 |
 | developer 为 `follow_issue` | 自动转 `working` | 先读 owner 为自己的 open issue 再修复 |
 
