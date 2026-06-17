@@ -59,8 +59,10 @@ function renderThread(description: string, uuid: string, task: Task): string {
 
 async function main() {
   let activeCount = 0;
+  let draftCount = 0;
   let idleStationCount = 0;
   let threadBlocks = "";
+  let draftBlocks = "";
   let kanbanReady = false;
 
   try {
@@ -70,8 +72,10 @@ async function main() {
     const active = Object.entries(kanban).filter(
       ([, t]) => t.status === "planned" || t.status === "in_progress",
     );
+    const drafts = Object.entries(kanban).filter(([, t]) => t.status === "draft");
 
     activeCount = active.length;
+    draftCount = drafts.length;
 
     for (const [uuid, task] of active) {
       for (const rk of roleKeys()) {
@@ -81,6 +85,9 @@ async function main() {
         }
       }
       threadBlocks += renderThread(task.description, uuid, task) + "\n";
+    }
+    for (const [uuid, task] of drafts) {
+      draftBlocks += renderThread(task.description, uuid, task) + "\n";
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -113,12 +120,19 @@ async function main() {
   if (!kanbanReady) {
     out += `  ⚠️  kanban 未初始化，运行 /kanban --init\n`;
   } else if (activeCount === 0) {
-    out += `  (no active threads)\n`;
+    out += draftCount > 0 ? `  (no active planned/in_progress threads)\n` : `  (no active threads)\n`;
   } else {
     out += `\n${threadBlocks}`;
   }
 
   out += `${SEP}\n`;
+
+  if (kanbanReady && draftCount > 0) {
+    out += `\nDraft Threads\n`;
+    out += `${SEP}\n`;
+    out += `\n${draftBlocks}`;
+    out += `${SEP}\n`;
+  }
 
   console.log(out);
 }

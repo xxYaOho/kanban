@@ -167,6 +167,37 @@ function validateOwnerCloseout(issues: DoctorIssue[], task: Task, uuid: string):
   }
 }
 
+function validateCollaborationHints(issues: DoctorIssue[], task: Task, uuid: string): void {
+  const hasReviewer = Object.keys(task.reviewer ?? {}).length > 0;
+  const reviewGateTargets = Object.entries(task.developer ?? {})
+    .filter(([, entry]) => entry.review_gate_required || entry.status === "waiting_review")
+    .map(([key]) => key);
+  if (hasReviewer && reviewGateTargets.length === 0 && Object.keys(task.developer ?? {}).length > 0) {
+    issues.push({
+      severity: "warning",
+      code: "reviewer_without_gate",
+      thread: uuid,
+      path: "reviewer",
+      message: "reviewer entries exist but no developer is marked review_gate_required or waiting_review",
+    });
+  }
+
+  for (const [key, entry] of Object.entries(task.developer ?? {})) {
+    const blockedOn = entry.blocked_on;
+    if (!blockedOn) continue;
+    const blocker = task.developer?.[blockedOn];
+    if (blocker?.status === "done") {
+      issues.push({
+        severity: "warning",
+        code: "blocked_on_satisfied",
+        thread: uuid,
+        path: `developer.${key}.blocked_on`,
+        message: `blocked_on=${blockedOn} is already done; treat it as dependency history, not an active blocker`,
+      });
+    }
+  }
+}
+
 function validateTaskFiles(issues: DoctorIssue[], task: Task, uuid: string): void {
   const dir = waveDir(task.repo, uuid);
   if (!existsSync(dir)) {
@@ -197,6 +228,7 @@ function diagnoseTask(task: Task, uuid: string): DoctorIssue[] {
   validateTesterArtifacts(issues, task, uuid);
   validateIntegratorArtifacts(issues, task, uuid);
   validateOwnerCloseout(issues, task, uuid);
+  validateCollaborationHints(issues, task, uuid);
   return issues;
 }
 

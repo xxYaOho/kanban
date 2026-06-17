@@ -284,6 +284,77 @@ async function testQueryJson(home: string): Promise<void> {
   assert(json.idleStations.tester.some((entry: any) => entry.stationName === "legacy"), "legacy task.test should migrate into tester idleStations");
 }
 
+async function testQueryOwnerMainCurrentEntry(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-query-owner-home-"));
+  const cwdRoot = await mkdtemp(join(tmpdir(), "kanban-query-owner-cwd-"));
+  try {
+    await seedTask(home);
+    const repoCwd = join(cwdRoot, repo);
+    await mkdir(repoCwd);
+    const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    data[uuid].owner = {
+      main: {
+        status: "working",
+        brief: "Owner main",
+        attempt: 1,
+        worktree: "main",
+        cwd: "main",
+        decisions: [],
+        closeout: "",
+        error: null,
+      },
+    };
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+
+    const query = runScript(home, "query.ts", [uuid.slice(0, 8)], repoCwd);
+    expectOk(query, "query owner main from repo root");
+    const json = parseQueryJson(query.stdout);
+    assert(json.currentEntry?.role === "owner", "repo root currentEntry should resolve owner");
+    assert(json.currentEntry?.key === "main", "repo root currentEntry should resolve owner.main");
+    assert(json.currentEntry?.status === "working", "repo root owner currentEntry should include status");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+    await rm(cwdRoot, { recursive: true, force: true });
+  }
+}
+
+async function testHelpShowsDraftThreads(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-help-draft-home-"));
+  try {
+    const root = join(home, ".kanban");
+    const draftUuid = "00000000-0000-4000-8000-000000000003";
+    const taskDir = join(root, repo, draftUuid);
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(join(taskDir, "plan.md"), "# Draft protocol task\n", "utf-8");
+    await writeFile(join(root, "kanban.json"), JSON.stringify({
+      [draftUuid]: {
+        status: "draft",
+        repo,
+        description: "Draft protocol task",
+        draft: "Draft notes",
+        plan: `~/.kanban/${repo}/${draftUuid}/plan.md`,
+        created: "2026-05-22T10:00:00+08:00",
+        updated: "2026-05-22T10:00:00+08:00",
+        developer: {},
+        owner: {},
+        reviewer: {},
+        tester: {},
+        integrator: {},
+      },
+    }, null, 2) + "\n");
+
+    const help = runScript(home, "help.ts", []);
+    expectOk(help, "help draft threads");
+    assert(help.stdout.includes("Active Threads"), "help should still render Active Threads");
+    assert(help.stdout.includes("(no active planned/in_progress threads)"), "help should distinguish draft-only state");
+    assert(help.stdout.includes("Draft Threads"), "help should render Draft Threads");
+    assert(help.stdout.includes("Draft protocol task [draft]"), "help should list draft thread");
+    assert(help.stdout.includes(draftUuid.slice(0, 8)), "help should show draft short id");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
 async function testQueryGateArtifacts(): Promise<void> {
   const home = await mkdtemp(join(tmpdir(), "kanban-query-gates-home-"));
   try {
@@ -538,6 +609,7 @@ async function testDoctorScript(): Promise<void> {
         error: null,
       },
     };
+    data[uuid].reviewer = {};
     data[uuid].integrator = {};
     data[uuid].owner = {};
     await writeFile(join(taskDir, "self-review-alpha-01.md"), [
@@ -620,6 +692,69 @@ async function testDoctorScript(): Promise<void> {
     assert(json.issues.some((issue: any) => issue.code === "developer_self_review_pair_mismatch"), "doctor should catch self-review source mismatch");
     assert(json.issues.some((issue: any) => issue.code === "developer_artifact_attempt_mismatch"), "doctor should catch attempt mismatch");
     assert(json.issues.some((issue: any) => issue.code === "owner_integrator_required_unresolved"), "doctor should catch unresolved integrator_required decision");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+async function testDoctorCollaborationWarnings(): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "kanban-doctor-warning-home-"));
+  try {
+    const taskDir = await seedTask(home);
+    const data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    delete data[uuid].test;
+    data[uuid].developer = {
+      donebase: {
+        status: "done",
+        brief: "Done dependency",
+        attempt: 1,
+        blocked_on: null,
+        worktree: "donebase",
+        cwd: "donebase",
+        reports: [],
+        review: null,
+        self_review: null,
+        review_gate_required: false,
+        error: null,
+      },
+      consumer: {
+        status: "idle",
+        brief: "Consumer work",
+        attempt: 0,
+        blocked_on: "donebase",
+        worktree: "consumer",
+        cwd: "consumer",
+        reports: [],
+        review: null,
+        self_review: null,
+        review_gate_required: false,
+        error: null,
+      },
+    };
+    data[uuid].reviewer = {
+      review: {
+        status: "idle",
+        brief: "Review delivery",
+        attempt: 0,
+        pass: [],
+        report: "",
+        error: null,
+      },
+    };
+    data[uuid].tester = {};
+    data[uuid].integrator = {};
+    data[uuid].owner = {};
+    await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+    assert(existsSync(join(taskDir, "plan.md")), "warning fixture should still have plan");
+
+    const result = runScript(home, "doctor.ts", [uuid.slice(0, 8)]);
+    expectOk(result, "doctor collaboration warnings");
+    const json = parseJson(result.stdout);
+    assert(json.ok === true, "doctor warnings should not fail ok");
+    assert(json.errorCount === 0, "doctor warnings should not count as errors");
+    assert(json.warningCount === 2, "doctor should report collaboration warnings");
+    assert(json.issues.some((issue: any) => issue.code === "reviewer_without_gate"), "doctor should warn about reviewer without gate");
+    assert(json.issues.some((issue: any) => issue.code === "blocked_on_satisfied"), "doctor should warn about satisfied blocked_on");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -1652,14 +1787,15 @@ async function testStandbyResolve(home: string): Promise<void> {
   await mkdir(missingCwd);
   await mkdir(alphaCwd);
 
-  const resolved = runScript(home, "standby-resolve.ts", [], reviewCwd);
-  expectOk(resolved, "standby resolve unique");
-  const json = parseJson(resolved.stdout);
-  assert(json.thread === uuid, "standby resolve should find current thread");
-  assert(json.role === "reviewer" && json.key === "review", "standby resolve should find reviewer entry");
+  const reviewerImplicit = runScript(home, "standby-resolve.ts", [], reviewCwd);
+  assert(reviewerImplicit.exitCode !== 0, "standby resolve should not implicitly select reviewer by key");
+  assert(reviewerImplicit.stderr.includes("reviewer 是无 cwd 席位"), "standby resolve should explain reviewer no-cwd seats");
+  assert(reviewerImplicit.stderr.includes("--thread <id> --role reviewer --standby"), "standby resolve should include explicit reviewer command hint");
 
   const missing = runScript(home, "standby-resolve.ts", [], missingCwd);
   assert(missing.exitCode !== 0, "standby resolve should fail for no candidate");
+  assert(missing.stderr.includes("reviewer 是无 cwd 席位"), "standby resolve should explain reviewer no-cwd seats");
+  assert(missing.stderr.includes("--thread <id> --role reviewer --standby"), "standby resolve should include explicit reviewer command hint");
 
   await seedStandbyResolutionTask(home);
   const multi = runScript(home, "standby-resolve.ts", [], alphaCwd);
@@ -1670,12 +1806,15 @@ async function testStandbyResolve(home: string): Promise<void> {
 async function main() {
   const home = await mkdtemp(join(tmpdir(), "kanban-regression-home-"));
   try {
-	    const taskDir = await seedTask(home);
-	    await testQueryJson(home);
-	    await testQueryGateArtifacts();
-	    await testDoctorScript();
-	    await testNewTaskPlanRefCopiesPlanAndSubPlans();
-	    await testRoleAlias(home);
+    const taskDir = await seedTask(home);
+    await testQueryJson(home);
+    await testQueryOwnerMainCurrentEntry();
+    await testHelpShowsDraftThreads();
+    await testQueryGateArtifacts();
+    await testDoctorScript();
+    await testDoctorCollaborationWarnings();
+    await testNewTaskPlanRefCopiesPlanAndSubPlans();
+    await testRoleAlias(home);
     await testRoleOwnerRegister();
     await testRoleOwnerRejectsExistingSeats();
     await testTesterCaseDocumentWrite(home);

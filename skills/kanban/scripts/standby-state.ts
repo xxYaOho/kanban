@@ -51,6 +51,7 @@ export function findActiveEntryByCwd(kanban: Kanban, cwdName: string): StandbyEn
   for (const [uuid, task] of Object.entries(kanban)) {
     if (task.status !== "planned" && task.status !== "in_progress") continue;
     for (const role of roleKeys()) {
+      if (role === "reviewer") continue;
       const entries = task[role] ?? {};
       for (const [key, entry] of Object.entries(entries)) {
         const maybeEntry = entry as { cwd?: string | null; status?: string; attempt?: number };
@@ -74,6 +75,24 @@ export async function resolveSingleActiveEntryForCwd(cwd = basename(process.cwd(
   const kanban = await readKanban();
   const matches = findActiveEntryByCwd(kanban, cwd);
   if (matches.length === 0) {
+    const reviewerEntries = Object.entries(kanban)
+      .filter(([, task]) => task.status === "planned" || task.status === "in_progress")
+      .flatMap(([uuid, task]) =>
+        Object.entries(task.reviewer ?? {}).map(([key, entry]) => ({
+          uuid,
+          key,
+          status: entry.status,
+        }))
+      );
+    if (reviewerEntries.length > 0) {
+      const labels = reviewerEntries
+        .map((entry) => `${entry.uuid.slice(0, 8)}:reviewer.${entry.key}(${entry.status})`)
+        .join(", ");
+      throw new Error(
+        `当前 cwd "${cwd}" 未匹配任何 planned/in_progress 席位。reviewer 是无 cwd 席位,` +
+          `请显式使用 /kanban --thread <id> --role reviewer --standby；这不是 role 注册失败。可用 reviewer: ${labels}`,
+      );
+    }
     throw new Error(`当前 cwd "${cwd}" 未匹配任何 planned/in_progress 席位，请先注册角色`);
   }
   if (matches.length > 1) {

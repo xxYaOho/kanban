@@ -226,6 +226,16 @@ function findCurrentEntry(task: Task, cwd: string): CurrentEntry | null {
       };
     }
   }
+  const ownerMain = task.owner?.main;
+  if (ownerMain && cwd === task.repo) {
+    const summary = summarizeEntry("owner", "main", ownerMain);
+    return {
+      role: summary.role,
+      key: summary.key,
+      status: summary.status,
+      brief: summary.brief,
+    };
+  }
   return null;
 }
 
