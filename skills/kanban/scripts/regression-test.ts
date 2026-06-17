@@ -935,6 +935,21 @@ async function testActionWriteDeveloperSubmitRequiresRelatedIssue(): Promise<voi
       "",
       "Beta bug.",
     ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "issue-beta-next.md"), [
+      "---",
+      `uuid: ${uuid}`,
+      "type: bug",
+      "status: open",
+      "owner: beta",
+      "title: Beta next bug",
+      "created: 2026-05-22T10:01:00+08:00",
+      "updated: 2026-05-22T10:01:00+08:00",
+      "---",
+      "",
+      "## Summary",
+      "",
+      "Another beta bug.",
+    ].join("\n"), "utf-8");
     await writeFile(join(taskDir, "report-beta-02.md"), [
       "---",
       "kind: dev-report",
@@ -989,6 +1004,37 @@ async function testActionWriteDeveloperSubmitRequiresRelatedIssue(): Promise<voi
       "attempt: 2",
       "created: 2026-05-22T10:00:00+08:00",
       "status_after: ready_for_test",
+      "self_review: self-review-beta-02.md",
+      "---",
+      "",
+      "# Dev Report",
+      "",
+      "related_issue: issue-beta-bug.md",
+    ].join("\n"), "utf-8");
+    const bodyOnly = runScript(home, "action-write.ts", [
+      "--action",
+      "developer.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "beta",
+      "--report",
+      "report-beta-02.md",
+      "--self-review",
+      "self-review-beta-02.md",
+    ]);
+    assert(bodyOnly.exitCode !== 0, "developer submit should ignore body-only related_issue");
+    assert(bodyOnly.stderr.includes("frontmatter"), "body-only related_issue error should mention frontmatter");
+
+    await writeFile(join(taskDir, "report-beta-02.md"), [
+      "---",
+      "kind: dev-report",
+      `uuid: ${uuid}`,
+      "worktree: beta",
+      "role: developer",
+      "attempt: 2",
+      "created: 2026-05-22T10:00:00+08:00",
+      "status_after: ready_for_test",
       "summary: Fixed beta bug",
       "related_issue: issue-beta-bug.md",
       "self_review: self-review-beta-02.md",
@@ -1010,7 +1056,54 @@ async function testActionWriteDeveloperSubmitRequiresRelatedIssue(): Promise<voi
     ]);
     expectOk(ok, "developer submit issue report with related_issue");
     data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
-    assert(data[uuid].developer.beta.status === "ready_for_test", "issue fix submit should set ready_for_test");
+    assert(data[uuid].developer.beta.status === "follow_issue", "developer should keep following remaining open issues");
+
+    await writeFile(join(taskDir, "report-beta-03.md"), [
+      "---",
+      "kind: dev-report",
+      `uuid: ${uuid}`,
+      "worktree: beta",
+      "role: developer",
+      "attempt: 3",
+      "created: 2026-05-22T10:02:00+08:00",
+      "status_after: ready_for_test",
+      "summary: Fixed remaining beta bug",
+      "related_issue: issue-beta-next.md",
+      "self_review: self-review-beta-03.md",
+      "---",
+      "",
+      "# Dev Report",
+    ].join("\n"), "utf-8");
+    await writeFile(join(taskDir, "self-review-beta-03.md"), [
+      "---",
+      "kind: self-review",
+      `uuid: ${uuid}`,
+      "worktree: beta",
+      "role: developer",
+      "attempt: 3",
+      "created: 2026-05-22T10:02:00+08:00",
+      "source_report: report-beta-03.md",
+      "reviewer: subagent",
+      "verdict: pass",
+      "---",
+      "",
+      "# Self Review",
+    ].join("\n"), "utf-8");
+    const complete = runScript(home, "action-write.ts", [
+      "--action",
+      "developer.submit-report",
+      "--thread",
+      uuid.slice(0, 8),
+      "--worktree",
+      "beta",
+      "--report",
+      "report-beta-03.md",
+      "--self-review",
+      "self-review-beta-03.md",
+    ]);
+    expectOk(complete, "developer submit final issue report");
+    data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+    assert(data[uuid].developer.beta.status === "ready_for_test", "developer should become ready after all open issues are covered");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -1051,6 +1144,69 @@ async function testActionWriteReviewerGate(home: string, taskDir: string): Promi
   assert(data[uuid].developer.beta.status === "waiting_review", "gate should move ready developer to waiting_review");
   assert(data[uuid].developer.beta.review_gate_required === true, "gate intent should persist");
 
+  data[uuid].developer.beta.status = "follow_issue";
+  await writeFile(join(taskDir, "issue-beta-gated.md"), [
+    "---",
+    `uuid: ${uuid}`,
+    "type: bug",
+    "status: open",
+    "owner: beta",
+    "title: Beta gated bug",
+    "created: 2026-05-22T09:59:00+08:00",
+    "updated: 2026-05-22T09:59:00+08:00",
+    "---",
+    "",
+    "## Summary",
+    "",
+    "Gated issue.",
+  ].join("\n"), "utf-8");
+  await writeFile(join(taskDir, "report-beta-gated-01.md"), [
+    "---",
+    "kind: dev-report",
+    `uuid: ${uuid}`,
+    "worktree: beta",
+    "role: developer",
+    "attempt: 1",
+    "created: 2026-05-22T09:59:30+08:00",
+    "status_after: waiting_review",
+    "related_issue: issue-beta-gated.md",
+    "self_review: self-review-beta-gated-01.md",
+    "---",
+    "",
+    "# Dev Report",
+  ].join("\n"), "utf-8");
+  await writeFile(join(taskDir, "self-review-beta-gated-01.md"), [
+    "---",
+    "kind: self-review",
+    `uuid: ${uuid}`,
+    "worktree: beta",
+    "role: developer",
+    "attempt: 1",
+    "created: 2026-05-22T09:59:30+08:00",
+    "source_report: report-beta-gated-01.md",
+    "reviewer: subagent",
+    "verdict: pass",
+    "---",
+    "",
+    "# Self Review",
+  ].join("\n"), "utf-8");
+  await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+  const submitWithGate = runScript(home, "action-write.ts", [
+    "--action",
+    "developer.submit-report",
+    "--thread",
+    uuid.slice(0, 8),
+    "--worktree",
+    "beta",
+    "--report",
+    "report-beta-gated-01.md",
+    "--self-review",
+    "self-review-beta-gated-01.md",
+  ]);
+  expectOk(submitWithGate, "developer submit with active reviewer gate");
+  data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  assert(data[uuid].developer.beta.status === "waiting_review", "developer submit with reviewer gate should wait for review");
+
   await writeFile(join(taskDir, "review-beta-01.md"), [
     "---",
     "kind: review",
@@ -1082,6 +1238,116 @@ async function testActionWriteReviewerGate(home: string, taskDir: string): Promi
   data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
   assert(data[uuid].developer.beta.status === "ready_for_test", "review approve should return ready_for_test");
   assert(data[uuid].developer.beta.review_gate_required === false, "review approve should clear gate intent");
+
+  data[uuid].developer.beta.status = "waiting_review";
+  data[uuid].developer.beta.review_gate_required = true;
+  data[uuid].developer.beta.reports = ["report-beta-02.md"];
+  await writeFile(join(taskDir, "issue-beta-reviewed.md"), [
+    "---",
+    `uuid: ${uuid}`,
+    "type: bug",
+    "status: open",
+    "owner: beta",
+    "title: Beta reviewed bug",
+    "created: 2026-05-22T10:03:00+08:00",
+    "updated: 2026-05-22T10:03:00+08:00",
+    "---",
+    "",
+    "## Summary",
+    "",
+    "Reviewed issue.",
+  ].join("\n"), "utf-8");
+  await writeFile(join(taskDir, "issue-beta-left.md"), [
+    "---",
+    `uuid: ${uuid}`,
+    "type: bug",
+    "status: open",
+    "owner: beta",
+    "title: Beta left bug",
+    "created: 2026-05-22T10:04:00+08:00",
+    "updated: 2026-05-22T10:04:00+08:00",
+    "---",
+    "",
+    "## Summary",
+    "",
+    "Leftover issue.",
+  ].join("\n"), "utf-8");
+  await writeFile(join(taskDir, "report-beta-02.md"), [
+    "---",
+    "kind: dev-report",
+    `uuid: ${uuid}`,
+    "worktree: beta",
+    "role: developer",
+    "attempt: 2",
+    "created: 2026-05-22T10:05:00+08:00",
+    "status_after: waiting_review",
+    "related_issue: issue-beta-reviewed.md",
+    "self_review: self-review-beta-02.md",
+    "---",
+    "",
+    "# Dev Report",
+  ].join("\n"), "utf-8");
+  await writeFile(join(taskDir, "review-beta-02.md"), [
+    "---",
+    "kind: review",
+    `uuid: ${uuid}`,
+    "worktree: beta",
+    "reviewer_worktree: review",
+    "role: reviewer",
+    "attempt: 2",
+    "created: 2026-05-22T10:06:00+08:00",
+    "verdict: approve",
+    "related_report: report-beta-02.md",
+    "---",
+    "",
+    "# Review",
+  ].join("\n"), "utf-8");
+  await writeFile(join(taskDir, "review-beta-unregistered.md"), [
+    "---",
+    "kind: review",
+    `uuid: ${uuid}`,
+    "worktree: beta",
+    "reviewer_worktree: review",
+    "role: reviewer",
+    "attempt: 2",
+    "created: 2026-05-22T10:06:30+08:00",
+    "verdict: approve",
+    "related_report: report-beta-unregistered.md",
+    "---",
+    "",
+    "# Review",
+  ].join("\n"), "utf-8");
+  await writeFile(join(home, ".kanban", "kanban.json"), JSON.stringify(data, null, 2) + "\n");
+  const approveUnregisteredReport = runScript(home, "action-write.ts", [
+    "--action",
+    "reviewer.submit-gate-review",
+    "--thread",
+    uuid.slice(0, 8),
+    "--target",
+    "beta",
+    "--review",
+    "review-beta-unregistered.md",
+    "--verdict",
+    "approve",
+  ]);
+  assert(approveUnregisteredReport.exitCode !== 0, "reviewer approve should reject unregistered related_report");
+  assert(approveUnregisteredReport.stderr.includes("developer.beta.reports"), "unregistered related_report error should mention developer reports");
+
+  const approveWithRemainingIssue = runScript(home, "action-write.ts", [
+    "--action",
+    "reviewer.submit-gate-review",
+    "--thread",
+    uuid.slice(0, 8),
+    "--target",
+    "beta",
+    "--review",
+    "review-beta-02.md",
+    "--verdict",
+    "approve",
+  ]);
+  expectOk(approveWithRemainingIssue, "reviewer approve with remaining issue");
+  data = JSON.parse(await readFile(join(home, ".kanban", "kanban.json"), "utf-8"));
+  assert(data[uuid].developer.beta.status === "follow_issue", "review approve should return follow_issue when open issues remain");
 }
 
 async function testActionWriteOwnerCloseoutGuard(): Promise<void> {

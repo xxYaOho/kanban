@@ -63,7 +63,7 @@ Reject 必须给出 developer 可执行的修改点,而不是抽象评价。
      --review review-<dev-name>-<NN>.md \
      --verdict <approve|reject>
    ```
-   - approve 后 developer 回到 `ready_for_test`
+   - approve 后 developer 回到 `ready_for_test`;若仍有未被该 developer 历史 dev reports 覆盖的 owner open issue,回到 `follow_issue`
    - reject 后 developer 进入 `review_rejected`
    - review 正文必须列出具体判断依据;reject 必须列出可执行修改点
 4. **汇报**:

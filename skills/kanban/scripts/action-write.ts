@@ -17,7 +17,7 @@ import {
   type Task,
 } from "./kanban-io";
 import { fromKanbanRel, waveDir } from "./paths";
-import { hasRelatedIssueReference, listIssues, parseFrontmatter } from "./issue-io";
+import { listIssues, parseFrontmatter } from "./issue-io";
 
 type Action =
   | "owner.register"
@@ -142,6 +142,38 @@ function readArtifactFrontmatter(task: Task, uuid: string, value: string): Recor
   return parseFrontmatter(readFileSync(path, "utf-8"));
 }
 
+function relatedIssueRefs(fm: Record<string, string>): string[] {
+  const value = fm.related_issue?.trim().replace(/^"(.*)"$/, "$1") ?? "";
+  if (!value || value === "null") return [];
+  return value
+    .split(",")
+    .map((item) => filename(item.trim()))
+    .filter(Boolean);
+}
+
+function openIssuesForOwner(task: Task, uuid: string, owner: string) {
+  return listIssues(task.repo, uuid, { status: "open" })
+    .filter((issue) => issue.owner === owner);
+}
+
+function relatedIssuesFromReports(task: Task, uuid: string, reportFiles: string[]): Set<string> {
+  const related = new Set<string>();
+  for (const reportFile of reportFiles) {
+    const fm = readArtifactFrontmatter(task, uuid, reportFile);
+    for (const issueFile of relatedIssueRefs(fm)) {
+      related.add(issueFile);
+    }
+  }
+  return related;
+}
+
+function uncoveredOpenIssues(task: Task, uuid: string, owner: string, reportFiles: string[]) {
+  const openIssues = openIssuesForOwner(task, uuid, owner);
+  if (openIssues.length === 0) return [];
+  const related = relatedIssuesFromReports(task, uuid, reportFiles);
+  return openIssues.filter((issue) => !related.has(issue.file));
+}
+
 function assertFm(fm: Record<string, string>, key: string, expected: string): void {
   if (fm[key] !== expected) {
     throw new Error(`frontmatter ${key} 应为 ${expected}, 实际 ${fm[key] ?? "(missing)"}`);
@@ -233,21 +265,23 @@ function submitDeveloperReport(task: Task, uuid: string, args: Args): string[] {
   if (reportFm.attempt !== selfReviewFm.attempt) {
     throw new Error(`report/self-review attempt 不一致: ${reportFm.attempt} vs ${selfReviewFm.attempt}`);
   }
-  const openIssues = listIssues(task.repo, uuid, { status: "open" })
-    .filter((issue) => issue.owner === args.key);
+  const openIssues = openIssuesForOwner(task, uuid, args.key);
   if (openIssues.length > 0) {
-    const reportPath = artifactPath(task, uuid, reportFile);
-    const reportContent = readFileSync(reportPath, "utf-8");
-    if (!hasRelatedIssueReference(reportContent, openIssues.map((issue) => issue.file))) {
+    const related = relatedIssueRefs(reportFm);
+    if (!openIssues.some((issue) => related.includes(issue.file))) {
       throw new Error(
         `developer.${args.key} 有 open issue,dev report frontmatter 必须包含 related_issue。` +
           ` 需引用: ${openIssues.map((issue) => issue.file).join(", ")}`,
       );
     }
   }
+  const reportFiles = [...(dev.reports ?? []), reportFile];
+  const remainingOpenIssues = uncoveredOpenIssues(task, uuid, args.key, reportFiles);
   dev.reports = [...(dev.reports ?? []), reportFile];
   dev.self_review = selfReviewFile;
-  dev.status = dev.review_gate_required ? "waiting_review" : "ready_for_test";
+  dev.status = dev.review_gate_required
+    ? "waiting_review"
+    : remainingOpenIssues.length > 0 ? "follow_issue" : "ready_for_test";
   dev.error = null;
   return [
     `developer.${args.key}.reports+=${reportFile}`,
@@ -271,7 +305,16 @@ function submitGateReview(task: Task, uuid: string, args: Args): string[] {
   assertFm(fm, "verdict", args.verdict);
   dev.review = reviewFile;
   dev.review_gate_required = false;
-  dev.status = args.verdict === "approve" ? "ready_for_test" : "review_rejected";
+  const relatedReport = fm.related_report ? filename(fm.related_report) : null;
+  if (relatedReport && !dev.reports.includes(relatedReport)) {
+    throw new Error(`review related_report 不在 developer.${args.target}.reports 中: ${relatedReport}`);
+  }
+  const remainingOpenIssues = args.verdict === "approve"
+    ? uncoveredOpenIssues(task, uuid, args.target, dev.reports)
+    : [];
+  dev.status = args.verdict === "approve"
+    ? remainingOpenIssues.length > 0 ? "follow_issue" : "ready_for_test"
+    : "review_rejected";
   return [
     `developer.${args.target}.review=${reviewFile}`,
     `developer.${args.target}.review_gate_required=false`,

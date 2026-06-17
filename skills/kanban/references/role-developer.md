@@ -83,7 +83,7 @@ enter(cwd = <worktree>)
    ✅ dev-serve 报告已提交 (attempt 01)
       Report: report-dev-serve-01.md
       Self-review: self-review-dev-serve-01.md
-      Status: working → ready_for_test
+     Status: working → ready_for_test / follow_issue
    下一步:等 tester。若 owner 插入 reviewer gate,状态会进入 waiting_review。
    ```
 
@@ -98,7 +98,7 @@ enter(cwd = <worktree>)
    commit 到当前 worktree 分支。如需 reviewer 远程拉取 diff，可 push 自己的分支，但**禁止**推 main/master。
 
 2. **issue 修复报告要引用 issue**
-   若当前 status 是 `follow_issue` 或任务目录存在 owner 为自己的 open issue，dev report frontmatter 必须包含 `related_issue: issue-<slug>.md`。
+   若当前 status 是 `follow_issue` 或任务目录存在 owner 为自己的 open issue，dev report frontmatter 必须包含 `related_issue: issue-<slug>.md`。若仍有未被该 developer 历史 dev reports 覆盖的 owner open issue，提交后继续保持 `follow_issue`。
 
 跳过任何一步 = 工作未交付，不要说自己"做完了"。
 
