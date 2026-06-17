@@ -98,9 +98,9 @@ Result:
 - `typecheck`: pass
 - `test`: pass
 
-### Phase 5-6 In Progress
+### Phase 5-6 Implemented
 
-Implemented in current pass:
+Implemented:
 
 - Added `/kanban --role owner` runtime registration:
   - default owner key/worktree is `main`
@@ -112,7 +112,8 @@ Implemented in current pass:
 - Updated role docs for owner, developer, reviewer, and tester vNext responsibilities.
 - Added `references/role-owner.md`.
 - Updated `/kanban --new` docs to prompt for owner registration only when there is no owner and no active seat.
-- Updated benchmark plan to use `benchmarks/replica-blenderhunt/` as the main benchmark. `approval-platform` remains a historical single-agent smoke baseline.
+- Updated benchmark plan to use `benchmarks/case_replica-blenderhunt/` as the main benchmark.
+- Archived origin / vNext benchmark runs under `benchmarks/archives/`.
 - Applied strict subagent review fixes:
   - owner registration now rejects any existing non-owner seat, including idle preallocated seats
   - `developer.submit-report` enforces `related_issue` when the developer owns an open issue
@@ -125,3 +126,99 @@ Verification status:
 - `typecheck`: pass
 - `test`: pass
 - `help`: pass
+
+## 2026-06-17
+
+### v0.2.0 Baseline
+
+Tagged:
+
+- `v0.1.0`: origin baseline.
+- `v0.2.0`: vNext loop model merged to main.
+
+Benchmark case:
+
+- Main case: `benchmarks/case_replica-blenderhunt/`
+- Archives: `benchmarks/archives/`
+- Summary: `benchmarks/benchmark-archive-report-20260617.md`
+
+### P1-a Guarded Tester / Integrator Actions
+
+Commit: `1979ee6 feat(kanban): guard tester and integrator actions`
+
+Implemented:
+
+- Added guarded actions:
+  - `tester.submit-cases`
+  - `tester.submit-report`
+  - `integrator.submit-integration-report`
+- `tester.submit-report` now validates:
+  - test report frontmatter
+  - linked reviewed test-cases document
+  - non-empty case coverage
+  - report coverage within case scope
+  - pass coverage across all developer entries
+- `integrator.submit-integration-report` now validates:
+  - all developers done
+  - tester pass evidence
+  - integration report frontmatter
+  - conflict / regression result status semantics
+- `owner.closeout` now requires:
+  - all developers done
+  - tester done with valid pass evidence
+  - required integrator evidence when requested
+- `query.ts` now uses the same tester evidence gate for integrate / owner closeout hints.
+- `agent-write.ts` now rejects direct writes that would bypass guarded actions:
+  - `developer.status=done`
+  - tester case/report/pass/fail/status fields
+  - integrator report/merged/conflicts/status fields
+
+Review:
+
+- Multiple strict subagent rounds requested changes.
+- Final subagent verdict: approve.
+
+Verification:
+
+```bash
+cd skills/kanban
+bun run typecheck
+bun run test
+bun run help
+```
+
+Result:
+
+- `typecheck`: pass
+- `test`: pass
+- `help`: pass
+
+### P1-b Benchmark Run Validation
+
+Commit: `7adf441 test(benchmarks): add blenderhunt run validation`
+
+Implemented:
+
+- Added `benchmarks/case_replica-blenderhunt/templates/`:
+  - `task-card.md`
+  - `timeline.md`
+  - `result.md`
+  - `metrics.json`
+- Added `benchmarks/case_replica-blenderhunt/scripts/validate-run.ts`.
+- Updated benchmark `AGENTS.md` to require:
+  - template copy at run creation
+  - stable metrics fields
+  - stable visual comparison paths
+  - validate-run before marking a run comparable
+
+Validation behavior:
+
+- Positive temporary run fixture returns `ok: true`.
+- Missing screenshots return `exit 1` with missing-file errors.
+- `visual.*` path escape such as `../outside.png` returns `exit 1`.
+- Empty `visual.*` fixed path returns `exit 1`.
+
+Review:
+
+- Strict subagent first requested path-contract fixes.
+- Final subagent verdict: approve.

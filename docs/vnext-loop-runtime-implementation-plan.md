@@ -133,9 +133,10 @@ owner closeout guard 必须使用这个判定。
 
 5. `owner.closeout`
    - 前置:
-     - tester done。
+     - developer 全部 done。
+     - tester done 且 pass evidence 有效。
      - closeout file exists。
-     - 若存在 active integrator,必须 integrator done 且 integration report 非空。
+     - 若存在 active integrator 或 owner `integrator_required` decision,必须 integrator done 且 integration report 有效。
    - 写入:
      - `owner.closeout=<file>`
      - task `status=done`
@@ -209,21 +210,38 @@ owner closeout guard 必须使用这个判定。
 
 修改范围:
 
-- `benchmarks/replica-blenderhunt/`
-- `benchmarks/approval-platform/` 仅保留历史 smoke baseline,不再扩展为主 benchmark
+- `benchmarks/case_replica-blenderhunt/`
+- `benchmarks/archives/`
 
 工作:
 
-1. 以 `benchmarks/replica-blenderhunt/PRD.md` 作为主 benchmark 需求真源。
+1. 以 `benchmarks/case_replica-blenderhunt/PRD.md` 作为主 benchmark 需求真源。
 2. 保持 `AGENTS.md` 只说明目标、约束、交付物和时间打点,不复制 kanban 角色职责或任务拆分规则。
 3. 保持每次 run 复用同一 PRD / DESIGN / token 资源,对比完成时长、交付质量、截图和 kanban artifact。
 4. 记录从 owner 创建 thread、multi-plan、席位推进、tester 验收到 owner closeout 的关键时间点。
-5. 保留 approval-platform 已有 run 作为历史单 Agent smoke baseline,但不作为 vNext 主对比项目。
+5. 使用 `templates/` 和 `scripts/validate-run.ts` 固定 run 输出,确保 `metrics.json`、截图和 artifact 路径可比较。
+6. 保留 `benchmarks/archives/` 中 origin / vNext tarball 和 `benchmark-archive-report-20260617.md` 作为历史对比资料。
 
 验证:
 
-- 能手工创建一次 replica-blenderhunt run 目录并填表。
+- 能手工创建一次 case_replica-blenderhunt run 目录并填表。
+- `bun run benchmarks/case_replica-blenderhunt/scripts/validate-run.ts <run-dir>` 可校验固定输出。
 - benchmark 不依赖 `skills/kanban` 运行时加载。
+
+## Post-v0.2.0 P1 follow-up
+
+P1-a 已完成:
+
+- 新增 `tester.submit-cases`、`tester.submit-report`、`integrator.submit-integration-report` guarded actions。
+- `developer.status=done`、tester 收尾字段、integrator 收尾字段禁止通过裸 `agent-write.ts` 绕过。
+- `query.ts`、`owner.closeout`、`integrator.submit-integration-report` 使用一致的 tester pass evidence gate。
+- owner closeout 要求 developer 全部 done,并校验 required integrator evidence。
+
+P1-b 已完成:
+
+- `benchmarks/case_replica-blenderhunt/templates/` 提供 run 输出模板。
+- `benchmarks/case_replica-blenderhunt/scripts/validate-run.ts` 校验固定路径、metrics 类型和 visual 引用。
+- `AGENTS.md` 记录模板复制、metrics 填写和 validate-run 收尾要求。
 
 ## 阶段提交建议
 
