@@ -101,7 +101,7 @@ enter(cwd = <repo root>)  # 在主 worktree(仓库根目录)工作
 
 在对话中报告 integration `done` 之前，必须完成 `references/shared-delivery-contract.md`，并额外满足 integrator 的合并要求:
 
-1. **验证前置条件**：所有 developer worktree 测试通过，无 blocked 状态
+1. **验证前置条件**：所有 developer worktree 均为 `done`,且 tester pass report / test-cases 证据有效
 2. **创建集成分支并合并**：`git checkout -b integration/<tag>-attempt-<NN> main`，逐个合并功能分支
 3. **运行完整回归测试套件**
 4. **原子更新 kanban 状态**（按上方 `action-write.ts` 执行：更新自身 report / merged / conflicts / status；任务顶层 done 由 owner closeout 处理）

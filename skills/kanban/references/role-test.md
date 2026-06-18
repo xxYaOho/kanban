@@ -25,7 +25,7 @@ enter(cwd = <tester-worktree>)
 
 ## 测试过程
 
-1. **检查测试用例文档**:若 `tester.<name>.case_document` 为空,先写 `test-cases-<NN>.md` 并记录:
+1. **检查测试用例文档**:若 `tester.<name>.case_document` 为空,先写包含 `covered_worktrees` 的 `test-cases-<NN>.md`,并通过 guarded action 记录:
    ```bash
    bun run $SCRIPTS/action-write.ts \
      --action tester.submit-cases \
@@ -113,7 +113,7 @@ bun run $SCRIPTS/issue.ts open \
 2. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `test-report` 模板,包含 `verdict: pass | fail`
 3. **原子提交**(按顺序执行):
    - pass:
-     - 提交 test report,并显式列出本轮覆盖且应收尾的 developer:
+     - 提交 test report,并显式列出本轮覆盖且应收尾的 developer。`--target` 必须和 test report frontmatter 的 `covered_worktrees` 一致;pass 必须覆盖全部 developer 条目:
        ```bash
        bun run $SCRIPTS/action-write.ts \
          --action tester.submit-report \
@@ -159,7 +159,7 @@ bun run $SCRIPTS/issue.ts open \
 在对话中汇报 tester verdict 之前，必须完成 `references/shared-delivery-contract.md`，并额外满足 tester 的验证要求:
 
 1. **验证前置条件**：所有 developer worktree 处于 `ready_for_test`、`review_approved` 或 `done` 状态
-2. **维护测试用例文档**：写入或更新 `test-cases-<NN>.md`,并在 `tester.<name>.case_document` 记录
+2. **维护测试用例文档**：写入或更新 `test-cases-<NN>.md`,并通过 `tester.submit-cases` 记录
 3. **运行集成测试**：merge / rebase 各 dev 分支，按测试用例运行测试套件和手工验证
 4. **失败时创建 issue**：必须写清 reproduction、expected / actual、diagnosis、owner、blocker、retest plan
 5. **原子更新 kanban 状态**（pass / fail 走 `action-write.ts`; issue done 走 `issue.ts`）
@@ -171,7 +171,7 @@ bun run $SCRIPTS/issue.ts open \
 - ❌ 在前置条件不满足时开工(产生噪声,浪费一轮)
 - ❌ 自己修代码(发现 bug → 通过 tester fail 反馈给 dev worktree)
 - ❌ 未合并 developer 分支就在 tester worktree 下结论
-- ❌ 没有测试用例文档或未记录 `case_document` 就给最终 pass
+- ❌ 没有测试用例文档,或未通过 `tester.submit-cases` 记录 `case_document` 就给最终 pass
 - ❌ 只写"测试失败"但没有定位、owner 和回测标准
 - ❌ 跳过 `withKanbanLock` 改 kanban.json
-- ❌ 任务顶层 `status = done` 的前提除了本次 tester pass 还**必须**所有 developer 条目状态为 `ready_for_test`、`review_approved` 或 `done`
+- ❌ pass report 未覆盖全部 developer,或 `--target` 与 `covered_worktrees` 不一致

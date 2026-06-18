@@ -75,9 +75,9 @@ bun --version || curl -fsSL https://bun.sh/install | bash
 
 4. **测试与集成**
 
-   所有 developer 到达 `ready_for_test`、`review_approved` 或 `done` 后进入 tester 阶段。tester 必须在自己的 worktree 合并相关 developer 分支；测试通过后，tester 将本轮通过的 developer 收尾为 `done`。`review_approved` 仅作为 v1 兼容状态保留。
+   所有 developer 到达 `ready_for_test`、`review_approved` 或 `done` 后进入 tester 阶段。tester 必须在自己的 worktree 合并相关 developer 分支；测试通过时,test report 必须覆盖全部 developer,并由 guarded action 将 developer 收尾为 `done`。`review_approved` 仅作为 v1 兼容状态保留。
 
-   发现问题时，tester 先定位并创建 issue；owner developer 进入 `follow_issue`，修复后重新提交 dev report + self-review 并回到 `ready_for_test`，tester 再回测 issue。复杂合并可由 owner 升级给 integrator；最终由 owner 写 owner closeout 并将任务置为 `done`。
+   发现问题时，tester 先定位并创建 issue；owner developer 进入 `follow_issue`，修复后重新提交 dev report + self-review 并回到 `ready_for_test`，tester 再回测 issue。复杂合并可由 owner 升级给 integrator；最终由 owner 写 owner closeout,并通过 `owner.closeout` guarded action 将任务置为 `done`。
 
    `/kanban --clear` 只归档 `~/.kanban` 中的任务资料，不删除真实 git worktree。
 

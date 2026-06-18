@@ -48,8 +48,8 @@ bun run $SCRIPTS/action-write.ts \
 
 1. **前置条件**
    - developer 全部 `done`
-   - tester 全部 `done`
-   - 若存在 active integrator,必须 integrator `done` 且有 integration report
+   - tester 全部 `done`,且 pass report / test-cases 证据有效
+   - 若存在 active 或 required integrator,必须 integrator `done` 且 integration report 证据有效
    - `owner-closeout-<NN>.md` 已写入任务目录
 2. **报告文件名**:`~/.kanban/<repo>/<uuid>/owner-closeout-<NN>.md`
 3. **frontmatter + 正文**:见 `references/frontmatter-templates.md` 的 `owner-closeout`;实际写文件优先使用 `assets/report-skeletons/owner-closeout.md`
@@ -65,6 +65,6 @@ bun run $SCRIPTS/action-write.ts \
 ## 禁忌
 
 - ❌ 跳过 tester 直接 closeout。
-- ❌ active integrator 未完成时 closeout。
+- ❌ tester pass 证据无效,或 active / required integrator 未完成时 closeout。
 - ❌ 将 reviewer 作为默认必经环节。
 - ❌ 直接手改 `kanban.json`。
