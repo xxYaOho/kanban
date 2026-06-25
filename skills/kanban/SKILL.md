@@ -3,6 +3,7 @@ name: kanban
 description: >
   Manual `/kanban` orchestration protocol for multi-agent git worktree tasks.
   Use only when the user explicitly invokes `/kanban` or asks to use the kanban skill.
+disable-model-invocation: true
 ---
 
 # Kanban Skill
@@ -17,17 +18,17 @@ description: >
 
 解析 `$ARGUMENTS`，按下表分派：
 
-| 形态 | 行为 | 加载 reference |
-|------|------|---------------|
-| `--init` | 初始化 `~/.kanban/` | `references/cmd-init.md` |
-| `--new [<context>]` | 从上下文创建任务 | `references/cmd-new.md` |
-| `--update <id> [<path>=<value>…]` | 交互式或快捷更新 | `references/cmd-update.md` |
-| `--thread <id> [<context>]` | 查询任务视图 | `references/data-model.md` + `references/cmd-query.md` |
-| `--role <role> [<context>]` | 当前 worktree 自注册 | `references/cmd-role.md` |
-| `--thread <id> --role <role> [<context>] --standby` | 注册后进入席位待命 | `references/cmd-role.md` + `references/cmd-standby.md` |
-| `--standby` | 已注册席位进入待命 | `references/data-model.md` + `references/cmd-standby.md` |
-| `--clear [<id>]` | 归档终态任务 | `references/cmd-clear.md` |
-| 空 / `--help` | 运行 `help.ts`，回复简短提示 | 内置 |
+| 形态                                                | 行为                         | 加载 reference                                           |
+| --------------------------------------------------- | ---------------------------- | -------------------------------------------------------- |
+| `--init`                                            | 初始化 `~/.kanban/`          | `references/cmd-init.md`                                 |
+| `--new [<context>]`                                 | 从上下文创建任务             | `references/cmd-new.md`                                  |
+| `--update <id> [<path>=<value>…]`                   | 交互式或快捷更新             | `references/cmd-update.md`                               |
+| `--thread <id> [<context>]`                         | 查询任务视图                 | `references/data-model.md` + `references/cmd-query.md`   |
+| `--role <role> [<context>]`                         | 当前 worktree 自注册         | `references/cmd-role.md`                                 |
+| `--thread <id> --role <role> [<context>] --standby` | 注册后进入席位待命           | `references/cmd-role.md` + `references/cmd-standby.md`   |
+| `--standby`                                         | 已注册席位进入待命           | `references/data-model.md` + `references/cmd-standby.md` |
+| `--clear [<id>]`                                    | 归档终态任务                 | `references/cmd-clear.md`                                |
+| 空 / `--help`                                       | 运行 `help.ts`，回复简短提示 | 内置                                                     |
 
 **空命令回复模板**（根据对话语言选择，不要逐字输出 help.ts stdout）：
 
@@ -59,9 +60,11 @@ description: >
 
 1. `cwdName = basename(pwd)`
 2. 遍历 kanban，找 task 满足 `task.status ∈ { planned, in_progress }`：
-  - 遍历 `owner`/`developer`/`tester`/`integrator` 条目，匹配 `.cwd` 字段等于 `cwdName`
-   - 若无 cwd 匹配，回退为 key 名等于 `cwdName`（兼容旧数据）
-   - `reviewer` 不参与 cwd 匹配（reviewer 不绑定 worktree）
+
+- 遍历 `owner`/`developer`/`tester`/`integrator` 条目，匹配 `.cwd` 字段等于 `cwdName`
+- 若无 cwd 匹配，回退为 key 名等于 `cwdName`（兼容旧数据）
+- `reviewer` 不参与 cwd 匹配（reviewer 不绑定 worktree）
+
 3. 多匹配 → 取 `updated` 最新；仍多 → AskUserQuestion 列候选
 4. 记录：`key = <匹配到的条目 key>`，`role = <条目所在 role key>`
 5. 按下方「角色手册索引」加载 `references/data-model.md` + 对应角色手册进入工作模式（`tester` 仍使用 `references/role-test.md`）
@@ -141,27 +144,27 @@ bun run $SCRIPTS/<script>.ts [args...]
 
 ## 子命令索引
 
-| 命令 | Reference |
-|------|-----------|
-| `/kanban --init` | `references/cmd-init.md` |
-| `/kanban --new [<context>]` | `references/cmd-new.md` |
-| `/kanban --update <id> [ops]` | `references/cmd-update.md` |
+| 命令                                | Reference                                                                  |
+| ----------------------------------- | -------------------------------------------------------------------------- | -------- | ------------------------------------------------------ |
+| `/kanban --init`                    | `references/cmd-init.md`                                                   |
+| `/kanban --new [<context>]`         | `references/cmd-new.md`                                                    |
+| `/kanban --update <id> [ops]`       | `references/cmd-update.md`                                                 |
 | `/kanban --thread <id> [<context>]` | `references/cmd-query.md`（需要数据模型时加载 `references/data-model.md`） |
-| `/kanban --issue <open|done|closed>` | `references/data-model.md` + `references/role-test.md` |
-| `/kanban --clear [<id>]` | `references/cmd-clear.md` |
-| `/kanban --role <role> [<context>]` | `references/cmd-role.md` |
-| `/kanban --standby` | `references/cmd-standby.md` |
+| `/kanban --issue <open              | done                                                                       | closed>` | `references/data-model.md` + `references/role-test.md` |
+| `/kanban --clear [<id>]`            | `references/cmd-clear.md`                                                  |
+| `/kanban --role <role> [<context>]` | `references/cmd-role.md`                                                   |
+| `/kanban --standby`                 | `references/cmd-standby.md`                                                |
 
 ## 角色手册索引
 
 路径 B 自动触发时，根据匹配到的 role key 加载对应手册：
 
-| Role | Reference | 加载条件 |
-|------|-----------|----------|
-| `owner` | `references/role-owner.md` | 条目属于 `task.owner` |
-| `developer` | `references/role-developer.md` | 条目属于 `task.developer` |
-| `reviewer` | `references/role-reviewer.md` | 条目属于 `task.reviewer` |
-| `tester` | `references/role-test.md` | 条目属于 `task.tester` |
+| Role         | Reference                       | 加载条件                   |
+| ------------ | ------------------------------- | -------------------------- |
+| `owner`      | `references/role-owner.md`      | 条目属于 `task.owner`      |
+| `developer`  | `references/role-developer.md`  | 条目属于 `task.developer`  |
+| `reviewer`   | `references/role-reviewer.md`   | 条目属于 `task.reviewer`   |
+| `tester`     | `references/role-test.md`       | 条目属于 `task.tester`     |
 | `integrator` | `references/role-integrator.md` | 条目属于 `task.integrator` |
 
 自动触发时同时加载 `references/data-model.md`。
